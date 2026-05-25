@@ -324,17 +324,88 @@ def _load_by_user(where_sql: str, params: list[str]) -> pd.DataFrame:
     return db.read_sql(
         f"""
         SELECT TOP (25)
-            UsuarioUltimoCambio,
+            LTRIM(RTRIM(REPLACE(UsuarioUltimoCambio, CHAR(0), ''))) AS UsuarioUltimoCambio,
             COUNT_BIG(*) AS Documentos,
+            SUM(CASE WHEN EsRiesgoFraude = 1 THEN 1 ELSE 0 END) AS RiesgoFraude,
             SUM(CASE WHEN FlagCambioVendedor = 1 THEN 1 ELSE 0 END) AS CambiosVendedor,
             SUM(CASE WHEN FlagCambioPosteriorPago = 1 THEN 1 ELSE 0 END) AS CambiosPosteriorPago,
             SUM(CASE WHEN FlagCambioPosteriorCierre = 1 THEN 1 ELSE 0 END) AS CambiosPosteriorCierre,
+            SUM(CASE WHEN FlagCambioTardio = 1 THEN 1 ELSE 0 END) AS CambiosTardios,
+            SUM(CASE WHEN FlagPosibleNotaCredito = 1 THEN 1 ELSE 0 END) AS NotasCredito,
             SUM(ISNULL(Total, 0)) AS MontoAuditado
         FROM {db.VIEW_AUDITORIA_CAMBIO_VENDEDOR}
         WHERE {where_sql}
           AND UsuarioUltimoCambio IS NOT NULL
-        GROUP BY UsuarioUltimoCambio
-        ORDER BY CambiosPosteriorCierre DESC, CambiosPosteriorPago DESC, CambiosVendedor DESC, Documentos DESC
+        GROUP BY LTRIM(RTRIM(REPLACE(UsuarioUltimoCambio, CHAR(0), '')))
+        ORDER BY RiesgoFraude DESC, CambiosPosteriorPago DESC, CambiosPosteriorCierre DESC, CambiosVendedor DESC, Documentos DESC
+        """,
+        params,
+    )
+
+
+def _load_by_branch(where_sql: str, params: list[str]) -> pd.DataFrame:
+    return db.read_sql(
+        f"""
+        SELECT TOP (25)
+            Sucursal,
+            COUNT_BIG(*) AS Documentos,
+            SUM(CASE WHEN EsRiesgoFraude = 1 THEN 1 ELSE 0 END) AS RiesgoFraude,
+            SUM(CASE WHEN NivelRiesgo = 'Alto' THEN 1 ELSE 0 END) AS RiesgoAlto,
+            SUM(CASE WHEN NivelRiesgo = 'Medio' THEN 1 ELSE 0 END) AS RiesgoMedio,
+            SUM(CASE WHEN NivelRiesgo = 'Bajo' THEN 1 ELSE 0 END) AS RiesgoBajo,
+            SUM(CASE WHEN FlagCambioVendedor = 1 THEN 1 ELSE 0 END) AS CambiosVendedor,
+            SUM(CASE WHEN FlagCambioPosteriorPago = 1 THEN 1 ELSE 0 END) AS CambiosPosteriorPago,
+            SUM(CASE WHEN FlagCambioPosteriorCierre = 1 THEN 1 ELSE 0 END) AS CambiosPosteriorCierre,
+            SUM(CASE WHEN FlagPosibleNotaCredito = 1 THEN 1 ELSE 0 END) AS NotasCredito,
+            SUM(ISNULL(Total, 0)) AS MontoAuditado
+        FROM {db.VIEW_AUDITORIA_CAMBIO_VENDEDOR}
+        WHERE {where_sql}
+        GROUP BY Sucursal
+        ORDER BY RiesgoFraude DESC, RiesgoAlto DESC, RiesgoMedio DESC, Documentos DESC
+        """,
+        params,
+    )
+
+
+def _load_change_vendor_users(where_sql: str, params: list[str]) -> pd.DataFrame:
+    return db.read_sql(
+        f"""
+        SELECT TOP (25)
+            LTRIM(RTRIM(REPLACE(UsuarioUltimoCambio, CHAR(0), ''))) AS UsuarioUltimoCambio,
+            COUNT_BIG(*) AS CambiosVendedor,
+            COUNT(DISTINCT Numero) AS Documentos,
+            COUNT(DISTINCT Sucursal) AS Sucursales,
+            SUM(ISNULL(Total, 0)) AS MontoAuditado,
+            MAX(CONVERT(varchar(19), FechaUltimoCambio, 120)) AS UltimoCambio
+        FROM {db.VIEW_AUDITORIA_CAMBIO_VENDEDOR}
+        WHERE {where_sql}
+          AND FlagCambioVendedor = 1
+          AND UsuarioUltimoCambio IS NOT NULL
+        GROUP BY LTRIM(RTRIM(REPLACE(UsuarioUltimoCambio, CHAR(0), '')))
+        ORDER BY CambiosVendedor DESC, MontoAuditado DESC
+        """,
+        params,
+    )
+
+
+def _load_risk_mix(where_sql: str, params: list[str]) -> pd.DataFrame:
+    return db.read_sql(
+        f"""
+        SELECT
+            NivelRiesgo,
+            COUNT_BIG(*) AS Documentos,
+            SUM(CASE WHEN EsRiesgoFraude = 1 THEN 1 ELSE 0 END) AS RiesgoFraude,
+            SUM(ISNULL(Total, 0)) AS MontoAuditado
+        FROM {db.VIEW_AUDITORIA_CAMBIO_VENDEDOR}
+        WHERE {where_sql}
+        GROUP BY NivelRiesgo
+        ORDER BY
+            CASE NivelRiesgo
+                WHEN 'Alto' THEN 1
+                WHEN 'Medio' THEN 2
+                WHEN 'Bajo' THEN 3
+                ELSE 4
+            END
         """,
         params,
     )
@@ -388,6 +459,9 @@ def render() -> None:
         summary = _load_summary(where_sql, params)
         detail = _load_detail(where_sql, params, limit)
         by_user = _load_by_user(where_sql, params)
+        by_branch = _load_by_branch(where_sql, params)
+        change_vendor_users = _load_change_vendor_users(where_sql, params)
+        risk_mix = _load_risk_mix(where_sql, params)
     except Exception as exc:
         st.error("No se pudo cargar la auditoria. Verifica que WallyBD y dbo.vw_AuditoriaCambioVendedor existan.")
         st.exception(exc)
@@ -417,20 +491,52 @@ def render() -> None:
         metric_card("Monto auditado", money(row["MontoAuditado"]))
     code_footer(*get_code("auditoria", "report"))
 
-    section_title("Detalle de alertas")
-    if detail.empty:
-        warning_box("No hay alertas con los filtros actuales.")
-    else:
-        _display_audit_detail_table(detail)
+    tab_summary, tab_users, tab_branches, tab_detail = st.tabs(
+        ["Resumen ejecutivo", "Usuarios", "Sucursales", "Detalle"]
+    )
+
+    with tab_summary:
+        section_title("Composicion por riesgo")
+        display_table(risk_mix, height=220, show_total=True)
+        code_footer(*get_code("auditoria", "report"))
+
+    with tab_users:
+        section_title("Ranking por usuario modificador")
+        display_table(by_user, height=360, show_total=False)
+        code_footer(*get_code("auditoria", "users_table"))
+
+        section_title("Ranking de cambios de vendedor")
+        if change_vendor_users.empty:
+            warning_box("No hay cambios de vendedor con los filtros actuales. La regla vigente excluye pedidos.")
+        else:
+            display_table(change_vendor_users, height=320, show_total=False)
+        code_footer(*get_code("auditoria", "users_table"))
+
+    with tab_branches:
+        section_title("Ranking por sucursal")
+        display_table(by_branch, height=390, show_total=False)
         code_footer(*get_code("auditoria", "detail_table"))
 
-    section_title("Usuarios con modificaciones")
-    display_table(by_user, height=330, show_total=False)
-    code_footer(*get_code("auditoria", "users_table"))
+    with tab_detail:
+        section_title("Detalle de alertas")
+        if detail.empty:
+            warning_box("No hay alertas con los filtros actuales.")
+        else:
+            _display_audit_detail_table(detail)
+            code_footer(*get_code("auditoria", "detail_table"))
 
     st.download_button(
         "Exportar auditoria a Excel",
-        dataframe_to_excel_bytes({"Resumen": summary, "Detalle": detail, "Usuarios": by_user}),
+        dataframe_to_excel_bytes(
+            {
+                "Resumen": summary,
+                "Riesgo": risk_mix,
+                "Usuarios": by_user,
+                "Cambios vendedor": change_vendor_users,
+                "Sucursales": by_branch,
+                "Detalle": detail,
+            }
+        ),
         file_name=export_filename("wally_auditoria_cambio_vendedor"),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
