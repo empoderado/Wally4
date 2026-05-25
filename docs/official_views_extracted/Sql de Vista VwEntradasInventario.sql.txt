@@ -1,0 +1,91 @@
+Sql Vista Vw EntradasInventario
+USE [StudioF]
+GO
+/****** Object:  View [dbo].[VwEntradasInventario]    Script Date: 5/05/2026 16:15:57 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER   VIEW [dbo].[VwEntradasInventario]
+AS
+WITH Base AS
+(
+    SELECT
+        CAST(mi.Fecha AS date) AS FechaEntrada,
+        mi.Fecha AS FechaHoraEntrada,
+        s.idSucursal,
+        s.Descripcion AS Sucursal,
+        a.idArticulo,
+        a.Codigo AS NombreTallaColor,
+        t1.Descripcion AS Referencia,
+        a.Referencia AS CodBarras,
+        a.Descripcion AS DescripcionArticulo,
+        t7.Descripcion AS CodEmbarque,
+        t7.Description AS CodEmbarqueAbreviado,
+        t4.Description AS Linea,
+        t3.Description AS DescripTipoPrenda,
+        t9.Descripcion AS Talla,
+        t10.Description AS Color,
+        ti.idTransaccionInv,
+        ti.Sigla AS SiglaTransaccion,
+        ti.Descripcion AS Transaccion,
+        CAST(mia.Cantidad AS int) AS UnidadesEntrada
+    FROM dbo.MovimientoInv AS mi
+    INNER JOIN dbo.MovimientoInvArticulo AS mia
+        ON mi.idSucursal = mia.idSucursal
+       AND mi.idMovimientoInv = mia.idMovimientoInv
+    INNER JOIN dbo.TransaccionInv AS ti
+        ON mi.idTransaccionInv = ti.idTransaccionInv
+    INNER JOIN dbo.Sucursal AS s
+        ON mi.idSucursal = s.idSucursal
+    INNER JOIN dbo.Articulo AS a
+        ON mia.idArticulo = a.idArticulo
+    LEFT JOIN dbo.Tabla1 AS t1 ON a.IdTabla1 = t1.IdTabla1
+    LEFT JOIN dbo.Tabla3 AS t3 ON a.IdTabla3 = t3.IdTabla3
+    LEFT JOIN dbo.Tabla4 AS t4 ON a.IdTabla4 = t4.IdTabla4
+    LEFT JOIN dbo.Tabla7 AS t7 ON a.IdTabla7 = t7.IdTabla7
+    LEFT JOIN dbo.Tabla9 AS t9 ON a.IdTabla9 = t9.IdTabla9
+    LEFT JOIN dbo.Tabla10 AS t10 ON a.IdTabla10 = t10.IdTabla10
+    WHERE
+        mi.FlagAnulado = 0
+        AND ti.FlagAfectaInventario = 1
+        AND mia.Cantidad > 0
+)
+SELECT
+    FechaEntrada,
+    idSucursal,
+    Sucursal,
+    idArticulo,
+    NombreTallaColor,
+    Referencia,
+    CodBarras,
+    DescripcionArticulo,
+    CodEmbarque,
+    CodEmbarqueAbreviado,
+    Linea,
+    DescripTipoPrenda,
+    Talla,
+    Color,
+    SiglaTransaccion,
+    Transaccion,
+    SUM(UnidadesEntrada) AS UnidadesEntrada
+FROM Base
+WHERE SiglaTransaccion = 'DDP'   -- 🔹 Filtro agregado correctamente
+GROUP BY
+    FechaEntrada,
+    idSucursal,
+    Sucursal,
+    idArticulo,
+    NombreTallaColor,
+    Referencia,
+    CodBarras,
+    DescripcionArticulo,
+    CodEmbarque,
+    CodEmbarqueAbreviado,
+    Linea,
+    DescripTipoPrenda,
+    Talla,
+    Color,
+    SiglaTransaccion,
+    Transaccion;
+GO

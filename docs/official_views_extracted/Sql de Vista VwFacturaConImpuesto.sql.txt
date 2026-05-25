@@ -1,0 +1,217 @@
+Sql de Vista VwFacturaConImpuesto
+USE [StudioF]
+GO
+/****** Object:  View [dbo].[VwFacturaConImpuesto]    Script Date: 4/05/2026 17:56:04 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER VIEW [dbo].[VwFacturaConImpuesto]
+AS
+WITH Base AS
+(
+    SELECT
+        mi.Fecha,
+        CAST(mi.Fecha AS date) AS FechaDocumento,
+        CAST(mi.Fecha AS time(0)) AS HoraDocumento,
+        s.Descripcion AS Sucursal,
+        ti.Sigla AS Trn,
+        mi.Numero,
+        t1.Descripcion AS Referencia,
+        a.Referencia AS CodBarras,
+        a.Codigo AS NombreTallaColor,
+        t2.Descripcion AS Coleccion,
+        t2.Description AS Coleccion_EN,
+        t3.Descripcion AS CodDescripTipoPrenda,
+        t3.Description AS DescripTipoPrenda,
+        t4.Descripcion AS CodDescLinea,
+        t4.Description AS Linea,
+        t5.Descripcion AS CodDescSubLinea,
+        t5.Description AS DescSubLinea,
+        t6.Descripcion AS CodColor,
+        t6.Description AS Sublinea_EN,
+        t7.Descripcion AS CodEmbarque,
+        t7.Description AS CodEmbarqueAbreviado,
+        t8.Descripcion AS EMB,
+        t8.Description AS EMB_EN,
+        t9.Descripcion AS Talla,
+        t9.Description AS Tabla9_Description,
+        t10.Descripcion AS ColorSF,
+        t10.Description AS Color,
+        a.Descripcion AS DescripcionArticulo,
+        CASE
+            WHEN ti.Sigla IN ('NC', 'NCC')
+                THEN ABS(mia.Cantidad) * -1
+            ELSE ABS(mia.Cantidad)
+        END AS Unidades,
+        ABS(mia.Costo) AS Costo,
+        ABS(mia.Precio) AS PrecioUnit,
+        ISNULL(mia.Descuento, 0) AS Descuento,
+        CASE
+            WHEN ABS(ISNULL(mia.Descuento, 0)) > 1
+                THEN ABS(ISNULL(mia.Descuento, 0)) / 100.0
+            ELSE ABS(ISNULL(mia.Descuento, 0))
+        END AS DescuentoPctBase,
+        CASE
+            WHEN ti.Sigla IN ('NC', 'NCC')
+                THEN ABS(ISNULL(mia.Impuesto, 0)) * -1
+            ELSE ABS(ISNULL(mia.Impuesto, 0))
+        END AS Impuesto,
+        mi.idEmpleadoVendedor AS IdVendedor,
+        LTRIM(RTRIM(ISNULL(ev.Nombres, '') + ' ' + ISNULL(ev.Apellidos, ''))) AS Vendedor,
+        c.IDT AS Cuenta,
+        c.Nombre AS Cliente,
+        ISNULL(cd.Direccion, c.Direccion) AS Direccion,
+        ISNULL(cd.eMail, c.eMail) AS eMail,
+        c.FechaNacimiento AS [Fecha Nacimiento],
+        ISNULL(cd.Telefono, c.Telefono) AS Telefono,
+        ISNULL(cd.Telefono, c.Telefono) AS Celular
+    FROM dbo.MovimientoInv AS mi
+    INNER JOIN dbo.MovimientoInvArticulo AS mia
+        ON mi.idSucursal = mia.idSucursal
+       AND mi.idMovimientoInv = mia.idMovimientoInv
+    INNER JOIN dbo.Sucursal AS s
+        ON mi.idSucursal = s.idSucursal
+    INNER JOIN dbo.TransaccionInv AS ti
+        ON mi.idTransaccionInv = ti.idTransaccionInv
+    INNER JOIN dbo.Articulo AS a
+        ON mia.idArticulo = a.idArticulo
+    LEFT OUTER JOIN dbo.Tabla1 AS t1
+        ON a.IdTabla1 = t1.IdTabla1
+    LEFT OUTER JOIN dbo.Tabla2 AS t2
+        ON a.IdTabla2 = t2.IdTabla2
+    LEFT OUTER JOIN dbo.Tabla3 AS t3
+        ON a.IdTabla3 = t3.IdTabla3
+    LEFT OUTER JOIN dbo.Tabla4 AS t4
+        ON a.IdTabla4 = t4.IdTabla4
+    LEFT OUTER JOIN dbo.Tabla5 AS t5
+        ON a.IdTabla5 = t5.IdTabla5
+    LEFT OUTER JOIN dbo.Tabla6 AS t6
+        ON a.IdTabla6 = t6.IdTabla6
+    LEFT OUTER JOIN dbo.Tabla7 AS t7
+        ON a.IdTabla7 = t7.IdTabla7
+    LEFT OUTER JOIN dbo.Tabla8 AS t8
+        ON a.IdTabla8 = t8.IdTabla8
+    LEFT OUTER JOIN dbo.Tabla9 AS t9
+        ON a.IdTabla9 = t9.IdTabla9
+    LEFT OUTER JOIN dbo.Tabla10 AS t10
+        ON a.IdTabla10 = t10.IdTabla10
+    LEFT OUTER JOIN dbo.Cliente AS c
+        ON mi.idCliente = c.idCliente
+    LEFT OUTER JOIN dbo.ClienteDireccion AS cd
+        ON mi.idClienteDireccion = cd.idClienteDireccion
+    LEFT OUTER JOIN dbo.Empleado AS ev
+        ON mi.idEmpleadoVendedor = ev.idEmpleado
+    WHERE
+        mi.FlagAnulado = 0
+        AND ti.FlagAfectaCtaCliente = 1
+        AND ti.Sigla IN ('FV', 'NC', 'NCC')
+),
+Calc AS
+(
+    SELECT
+        Fecha,
+        FechaDocumento,
+        HoraDocumento,
+        Sucursal,
+        Trn,
+        Numero,
+        Referencia,
+        CodBarras,
+        NombreTallaColor,
+        Coleccion,
+        Coleccion_EN,
+        CodDescripTipoPrenda,
+        DescripTipoPrenda,
+        CodDescLinea,
+        Linea,
+        CodDescSubLinea,
+        DescSubLinea,
+        CodColor,
+        Sublinea_EN,
+        CodEmbarque,
+        CodEmbarqueAbreviado,
+        EMB,
+        EMB_EN,
+        Talla,
+        Tabla9_Description,
+        ColorSF,
+        Color,
+        DescripcionArticulo,
+        Unidades,
+        Costo,
+        PrecioUnit,
+        Descuento,
+        DescuentoPctBase,
+        Impuesto,
+        IdVendedor,
+        Vendedor,
+        Cuenta,
+        Cliente,
+        Direccion,
+        eMail,
+        [Fecha Nacimiento],
+        Telefono,
+        Celular,
+        CASE
+            WHEN DescuentoPctBase > 1 THEN 1
+            ELSE DescuentoPctBase
+        END AS DescuentoPct
+    FROM Base
+)
+SELECT
+    Sucursal,
+    Fecha,
+    FechaDocumento,
+    HoraDocumento,
+    Trn,
+    Numero,
+    Referencia,
+    CodBarras,
+    NombreTallaColor,
+    Coleccion,
+    Coleccion_EN,
+    CodDescripTipoPrenda,
+    DescripTipoPrenda,
+    CodDescLinea,
+    Linea,
+    CodDescSubLinea,
+    DescSubLinea,
+    CodColor,
+    Sublinea_EN,
+    CodEmbarque,
+    CodEmbarqueAbreviado,
+    EMB,
+    EMB_EN,
+    Talla,
+    Tabla9_Description,
+    ColorSF,
+    Color,
+    DescripcionArticulo,
+    Unidades,
+    Costo,
+    CAST(ROUND(Costo * Unidades, 2) AS decimal(18, 2)) AS CostoTotal,
+    PrecioUnit,
+    CAST(ROUND(PrecioUnit * Unidades, 2) AS decimal(18, 2)) AS VentaBruta,
+    Descuento,
+    DescuentoPct,
+    CAST(ROUND(PrecioUnit * Unidades * DescuentoPct, 2) AS decimal(18, 2)) AS DescuentoValor,
+    Impuesto,
+    CAST(
+        ROUND(
+            PrecioUnit * Unidades
+            - PrecioUnit * Unidades * DescuentoPct,
+            2
+        ) AS decimal(18, 2)
+    ) AS VentaNetaQ,
+    IdVendedor,
+    Vendedor,
+    Cuenta,
+    Cliente,
+    Direccion,
+    eMail,
+    [Fecha Nacimiento],
+    Telefono,
+    Celular
+FROM Calc;
+GO

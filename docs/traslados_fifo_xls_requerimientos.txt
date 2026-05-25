@@ -1,0 +1,75 @@
+﻿Modulo: Traslados
+Opcion inicial: FIFO-XLS
+
+Vocabulario
+-----------
+Traslado:
+Unidad que se saca de una sucursal de origen y se envia fisicamente a una sucursal de destino.
+
+Objetivo
+--------
+Generar sugerencias de cruce de mercancia entre sucursales usando datos reales de las vistas oficiales de WallyAgent.
+El modulo no modifica el ERP y no crea documentos de traslado automaticamente.
+
+Fuentes oficiales
+-----------------
+- dbo.VwExistencia
+- SQLite local: traslado_prioridad_sucursal
+
+Reglas implementadas en FIFO-XLS
+-------------------------------
+1. Prioridad por embarque:
+   El algoritmo procesa primero los embarques mas recientes, usando TVida menor como indicador de mayor reciente.
+
+2. Prioridad por tienda:
+   La prioridad de tienda es configurable desde Configuracion > Traslados.
+   Prioridad 1 recibe primero.
+   Prioridad 0 excluye la tienda: no recibe y no envia producto.
+
+3. Maximo de unidades:
+   El usuario ingresa el maximo de unidades a trasladar.
+   El algoritmo puede sugerir menos, pero nunca mas.
+
+4. Tiendas destino:
+   El usuario puede seleccionar:
+   - Todas las tiendas activas.
+   - Una sola tienda destino.
+   - Varias tiendas destino.
+
+5. Lineas y sublineas:
+   El usuario puede activar o inactivar lineas y sublineas antes de ejecutar el cruce.
+   Por defecto se incluyen todas las lineas y sublineas activas.
+   Las lineas o sublineas quitadas quedan excluidas del procedimiento.
+
+6. Unidad operativa:
+   SKU = EMB + Linea + Referencia + Color + Talla.
+
+7. Necesidad:
+   Una tienda destino necesita una unidad cuando no tiene existencia disponible del SKU.
+   Los destinos se ordenan primero por la tienda con mayor rotacion de la referencia.
+   Si dos destinos tienen la misma rotacion, se usa la prioridad configurable de tienda.
+
+8. Origen:
+   Una tienda puede despachar si tiene mas de una unidad disponible del SKU.
+   Los origenes se ordenan empezando por la tienda con menor rotacion de la misma referencia.
+   Rotacion de referencia = unidades facturadas / unidades entradas.
+   Si dos tiendas tienen el mismo porcentaje de rotacion, el desempate es menor TVida de la referencia.
+
+9. No dejar unidades sueltas:
+   Si despues del traslado el origen quedaria con una sola unidad, se sugiere trasladar toda la existencia disponible del origen para ese SKU, respetando el maximo global.
+
+10. Salida:
+   La salida inicial es un Excel FIFO-XLS con columnas:
+   EMB, Linea, Referencia, Color, Talla,
+   EXISTENCIA por cada tienda activa,
+   ORIGEN TIENDA QUE DESPACHA,
+   DESTINO TIENDA QUE RECIBE,
+   CANTIDAD.
+
+Reglas pendientes para versiones posteriores
+--------------------------------------------
+- Preservar curva minima de tallas con una regla configurable.
+- Medir efectividad posterior a 7, 14 y 30 dias.
+- Incluir rutas historicas efectivas entre tiendas.
+- Agregar otros formatos de salida ademas de FIFO-XLS.
+

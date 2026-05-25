@@ -1,0 +1,193 @@
+Vista  VwClienteResumenCRM
+USE [StudioF];
+GO
+CREATE OR ALTER VIEW dbo.VwClienteResumenCRM
+AS
+WITH VentasFV AS
+(
+    SELECT
+        CAST(Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT AS NitDpi,
+        LTRIM(RTRIM(CAST(Cliente AS varchar(250)))) COLLATE DATABASE_DEFAULT AS Cliente,
+        NULLIF(LTRIM(RTRIM(CAST(Telefono AS varchar(100)))), '') AS Telefono,
+        NULLIF(LTRIM(RTRIM(CAST(Celular AS varchar(100)))), '') AS Celular,
+        NULLIF(LTRIM(RTRIM(CAST(eMail AS varchar(250)))), '') AS Email,
+        CAST(FechaDocumento AS date) AS FechaDocumento,
+        Sucursal COLLATE DATABASE_DEFAULT AS Sucursal,
+        Trn COLLATE DATABASE_DEFAULT AS Trn,
+        Numero COLLATE DATABASE_DEFAULT AS Numero,
+        CONCAT(
+            CAST(Sucursal AS varchar(100)) COLLATE DATABASE_DEFAULT,
+            '|',
+            CAST(Trn AS varchar(20)) COLLATE DATABASE_DEFAULT,
+            '|',
+            CAST(Numero AS varchar(50)) COLLATE DATABASE_DEFAULT
+        ) AS FacturaKey,
+        IdVendedor,
+        Vendedor COLLATE DATABASE_DEFAULT AS Vendedor,
+        ISNULL(Unidades, 0) AS Unidades,
+        ISNULL(VentaNetaQ, 0) AS VentaNetaQ,
+        ISNULL(DescuentoPct, 0) AS DescuentoPct
+    FROM dbo.VwFacturaConImpuesto
+    WHERE Trn = 'FV'
+      AND Cuenta IS NOT NULL
+      AND LTRIM(RTRIM(CAST(Cuenta AS varchar(50)))) <> ''
+      AND Cliente IS NOT NULL
+      AND UPPER(LTRIM(RTRIM(CAST(Cliente AS varchar(250))))) COLLATE DATABASE_DEFAULT NOT IN
+      (
+          'CONSUMIDOR FINAL',
+          'CLIENTE GENERAL',
+          'SIN NOMBRE',
+          'CF',
+          'C/F'
+      )
+),
+ClientesConTelefono AS
+(
+    SELECT *
+    FROM VentasFV
+    WHERE ISNULL(Telefono, '') <> ''
+       OR ISNULL(Celular, '') <> ''
+),
+TotalesCliente AS
+(
+    SELECT
+        NitDpi,
+        MAX(Cliente) AS Cliente,
+        MAX(Telefono) AS Telefono,
+        MAX(Celular) AS Celular,
+        MAX(Email) AS Email,
+        COUNT(DISTINCT FacturaKey) AS FacturasTotales,
+        SUM(Unidades) AS UnidadesTotales,
+        SUM(VentaNetaQ) AS VentaNetaTotal,
+        SUM(CASE WHEN DescuentoPct <= 0.20 THEN Unidades ELSE 0 END) AS UnidadesFullPrecio,
+        SUM(CASE WHEN DescuentoPct > 0.20 THEN Unidades ELSE 0 END) AS UnidadesPromocion,
+        SUM(CASE WHEN DescuentoPct <= 0.20 THEN VentaNetaQ ELSE 0 END) AS VentaFullPrecio,
+        SUM(CASE WHEN DescuentoPct > 0.20 THEN VentaNetaQ ELSE 0 END) AS VentaPromocion,
+        MAX(FechaDocumento) AS FechaUltimaCompra
+    FROM ClientesConTelefono
+    GROUP BY NitDpi
+),
+SucursalCliente AS
+(
+    SELECT
+        NitDpi,
+        Sucursal,
+        COUNT(DISTINCT FacturaKey) AS FacturasSucursal,
+        SUM(VentaNetaQ) AS VentaNetaSucursal,
+        MAX(FechaDocumento) AS FechaUltimaCompraSucursal
+    FROM ClientesConTelefono
+    GROUP BY NitDpi, Sucursal
+),
+SucursalPreferida AS
+(
+    SELECT
+        NitDpi,
+        Sucursal AS SucursalPreferida,
+        FacturasSucursal,
+        VentaNetaSucursal,
+        FechaUltimaCompraSucursal,
+        ROW_NUMBER() OVER
+        (
+            PARTITION BY NitDpi
+            ORDER BY
+                FacturasSucursal DESC,
+                VentaNetaSucursal DESC,
+                FechaUltimaCompraSucursal DESC,
+                Sucursal ASC
+        ) AS rn
+    FROM SucursalCliente
+),
+UltimaFactura AS
+(
+    SELECT
+        NitDpi,
+        Sucursal AS SucursalUltimaCompra,
+        Numero AS NumeroUltimaFactura,
+        IdVendedor AS IdVendedorUltimaFactura,
+        Vendedor AS VendedorUltimaFactura,
+        FechaDocumento AS FechaUltimaFactura,
+        ROW_NUMBER() OVER
+        (
+            PARTITION BY NitDpi
+            ORDER BY
+                FechaDocumento DESC,
+                Numero DESC
+        ) AS rn
+    FROM ClientesConTelefono
+),
+Resumen AS
+(
+    SELECT
+        tc.NitDpi,
+        tc.Cliente,
+        tc.Telefono,
+        tc.Celular,
+        tc.Email,
+        tc.FechaUltimaCompra,
+        DATEDIFF(DAY, tc.FechaUltimaCompra, CAST(GETDATE() AS date)) AS DiasSinCompra,
+        sp.SucursalPreferida,
+        sp.FacturasSucursal AS FacturasSucursalPreferida,
+        uf.SucursalUltimaCompra,
+        uf.NumeroUltimaFactura,
+        uf.IdVendedorUltimaFactura,
+        uf.VendedorUltimaFactura,
+        tc.FacturasTotales,
+        tc.UnidadesTotales,
+        tc.VentaNetaTotal,
+        tc.UnidadesFullPrecio,
+        tc.UnidadesPromocion,
+        tc.VentaFullPrecio,
+        tc.VentaPromocion
+    FROM TotalesCliente tc
+    INNER JOIN SucursalPreferida sp
+        ON tc.NitDpi = sp.NitDpi
+       AND sp.rn = 1
+    INNER JOIN UltimaFactura uf
+        ON tc.NitDpi = uf.NitDpi
+       AND uf.rn = 1
+)
+SELECT
+    ROW_NUMBER() OVER
+    (
+        ORDER BY
+            DiasSinCompra DESC,
+            VentaNetaTotal DESC,
+            Cliente ASC
+    ) AS NumeroCliente,
+    NitDpi,
+    Cliente,
+    Telefono,
+    Celular,
+    Email,
+    FechaUltimaCompra,
+    DiasSinCompra,
+    CASE
+        WHEN DiasSinCompra BETWEEN 1 AND 60 THEN '1 a 60 dias'
+        WHEN DiasSinCompra BETWEEN 61 AND 120 THEN '61 a 120 dias'
+        WHEN DiasSinCompra >= 121 THEN '121 dias en adelante'
+        ELSE 'Compra reciente'
+    END AS SegmentoSinCompra,
+    SucursalPreferida,
+    FacturasSucursalPreferida,
+    SucursalUltimaCompra,
+    NumeroUltimaFactura,
+    IdVendedorUltimaFactura,
+    VendedorUltimaFactura,
+    FacturasTotales,
+    UnidadesTotales,
+    VentaNetaTotal,
+    UnidadesFullPrecio,
+    UnidadesPromocion,
+    VentaFullPrecio,
+    VentaPromocion,
+    CASE
+        WHEN UnidadesTotales = 0 THEN 0
+        ELSE CAST(UnidadesFullPrecio AS decimal(18, 4)) / NULLIF(UnidadesTotales, 0)
+    END AS PorcentajeFullPrecio,
+    CASE
+        WHEN UnidadesTotales = 0 THEN 0
+        ELSE CAST(UnidadesPromocion AS decimal(18, 4)) / NULLIF(UnidadesTotales, 0)
+    END AS PorcentajePromocion
+FROM Resumen
+WHERE DiasSinCompra >= 1;
+GO
