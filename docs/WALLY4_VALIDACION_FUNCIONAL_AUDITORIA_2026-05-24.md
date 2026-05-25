@@ -99,6 +99,17 @@ Actualizado el 2026-05-24:
 - `NivelRiesgo = Operativo`: traslados entre sucursales `idTransaccionInv IN (4, 5)` sin cambio de vendedor, sin cambio posterior al pago y sin nota de credito.
 - `EsRiesgoFraude = 1`: cambio de vendedor, cambio posterior al pago o nota de credito con monto absoluto mayor/igual a Q1000 o posterior al cierre.
 
+## AUD-POST-CIERRE
+
+Decision funcional: `FlagCambioPosteriorCierre` solo aplica cuando hay cambio BIT real despues del cierre de caja de la misma sucursal y fecha del documento.
+
+Regla aplicada:
+
+- Requiere `CantidadCambiosDetectados > 0`.
+- Excluye `Pedido` (`idTransaccionInv = 31`).
+- Excluye transferencias operativas entre sucursales (`idTransaccionInv IN (4, 5)`).
+- Usa `FechaUltimoCambio > FechaUltimoCierre`.
+
 Casos validados:
 
 - `S017T000053`: `NivelRiesgo = Operativo`, `TipoAlerta = Cambio posterior al cierre; Traslado operativo`, `EsRiesgoFraude = 0`.

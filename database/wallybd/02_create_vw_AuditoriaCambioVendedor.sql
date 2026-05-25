@@ -16,6 +16,8 @@
       por registros automaticos inmediatamente posteriores al pago.
     - FlagCambioTardio excluye transferencias operativas entre sucursales:
       idTransaccionInv 4 = Exporta a Sucursal, 5 = Importa de Sucursal.
+    - FlagCambioPosteriorCierre exige un cambio BIT real y excluye
+      transferencias operativas entre sucursales.
     - FlagPosibleNotaCredito usa idTransaccionInv = 10, validado en catalogo
       StudioF.dbo.TransaccionInv como "Nota de credito cliente".
     - Las banderas de auditoria excluyen pedidos: idTransaccionInv = 31.
@@ -208,6 +210,8 @@ Core AS (
                 WHEN agregado.FechaUltimoCambio IS NOT NULL
                  AND cierres.FechaUltimoCierre IS NOT NULL
                  AND mov.idTransaccionInv <> 31
+                 AND mov.idTransaccionInv NOT IN (4, 5)
+                 AND ISNULL(CONVERT(bigint, agregado.CantidadCambiosDetectados), 0) > 0
                  AND agregado.FechaUltimoCambio > cierres.FechaUltimoCierre
                 THEN 1 ELSE 0
             END AS bit

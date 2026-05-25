@@ -28,9 +28,9 @@ USING (
         (
             'AUD-POST-CIERRE',
             'Cambio posterior al cierre',
-            'Detecta documentos cuyo ultimo cambio BIT ocurre despues del cierre de la misma jornada y sucursal. Excluye pedidos idTransaccionInv = 31.',
+            'Detecta documentos cuyo ultimo cambio BIT real ocurre despues del cierre de la misma jornada y sucursal. Excluye pedidos y transferencias operativas.',
             'FlagCambioPosteriorCierre',
-            'pendiente_validacion'
+            'validacion_funcional_ok'
         ),
         (
             'AUD-CAMBIO-TARDIO',

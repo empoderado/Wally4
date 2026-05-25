@@ -81,6 +81,16 @@ WITH Casos AS (
                 CONVERT(bit, 0),
                 'ok',
                 'Pedido historico idTransaccionInv=31 con VendedorInicial 7 y VendedorFinalBIT 74. Negocio confirmo que Pedido no debe auditarse como cambio de vendedor.'
+            ),
+            (
+                'AUD-POST-CIERRE',
+                11,
+                CONVERT(bigint, 111608000),
+                'S011T001168',
+                CONVERT(bit, 0),
+                CONVERT(bit, 0),
+                'ok',
+                'Transferencia operativa idTransaccionInv=5/4 posterior al cierre; negocio la clasifica como operativa y queda fuera de AUD-POST-CIERRE.'
             )
     ) AS source(CodigoRegla, idSucursal, idMovimientoInv, Numero, ResultadoEsperado, ResultadoVista, EstadoValidacion, Observacion)
 )
@@ -121,12 +131,12 @@ UPDATE rules
 SET Estado =
         CASE
             WHEN rules.CodigoRegla IN ('AUD-CAMBIO-TARDIO', 'AUD-NOTA-CREDITO') THEN 'validacion_tecnica_ok'
-            WHEN rules.CodigoRegla = 'AUD-CAMBIO-VENDEDOR' THEN 'validacion_funcional_ok'
+            WHEN rules.CodigoRegla IN ('AUD-CAMBIO-VENDEDOR', 'AUD-POST-CIERRE') THEN 'validacion_funcional_ok'
             ELSE rules.Estado
         END,
     FechaActualizacion = SYSDATETIME()
 FROM Audit.ReglaAuditoria AS rules
-WHERE rules.CodigoRegla IN ('AUD-CAMBIO-TARDIO', 'AUD-NOTA-CREDITO', 'AUD-CAMBIO-VENDEDOR');
+WHERE rules.CodigoRegla IN ('AUD-CAMBIO-TARDIO', 'AUD-NOTA-CREDITO', 'AUD-CAMBIO-VENDEDOR', 'AUD-POST-CIERRE');
 GO
 
 SELECT

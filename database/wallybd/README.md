@@ -59,14 +59,13 @@ cd C:\Apps\Wally4
 - Las banderas de auditoria excluyen pedidos (`idTransaccionInv = 31`) por decision funcional de negocio.
 - `FlagCambioVendedor`: compara primer vendedor historico contra ultimo vendedor historico en `BITMovimientoInv`.
 - `FlagCambioPosteriorPago`: ultimo cambio mas de 60 segundos despues de `FechaUltimoPago`.
-- `FlagCambioPosteriorCierre`: `FechaUltimoCambio > FechaUltimoCierre`, usando cierre de la misma fecha del documento y sucursal.
+- `FlagCambioPosteriorCierre`: `FechaUltimoCambio > FechaUltimoCierre`, usando cierre de la misma fecha del documento y sucursal; requiere `CantidadCambiosDetectados > 0` y excluye transferencias operativas.
 - `FlagCambioTardio`: ultimo cambio mas de 60 minutos despues del primer registro BIT, excluyendo transferencias operativas entre sucursales (`idTransaccionInv` 4 y 5).
 - `FlagPosibleNotaCredito`: `idTransaccionInv = 10` (`Nota de credito cliente` en `StudioF.dbo.TransaccionInv`).
 
 ## Pendientes de confirmacion funcional
 
 - Confirmar si `BITMovimientoInv.idEmpleado` representa vendedor historico.
-- Confirmar si `MovCajaCierre.btFecha` representa cierre por jornada del mismo dia o si algunas tiendas cierran despues de medianoche.
 - Confirmar con facturas reales una muestra de alertas y no-alertas antes de congelar la vista como estable.
 - Revisar si reglas de cambio tardio deben limitarse a factura/pedido o si tambien deben incluir otras transacciones no-transferencia.
 

@@ -58,9 +58,10 @@ Decision funcional cerrada:
 
 - Cambios de vendedor en `Pedido` (`idTransaccionInv = 31`) no deben auditarse como cambio de vendedor.
 
-Pendiente funcional:
+Decision funcional cerrada:
 
-- Revisar alcance final de `AUD-POST-CIERRE` con criterio de cierre de jornada.
+- `AUD-POST-CIERRE` requiere cambio BIT real (`CantidadCambiosDetectados > 0`).
+- `AUD-POST-CIERRE` excluye pedidos (`idTransaccionInv = 31`) y transferencias operativas (`idTransaccionInv IN (4, 5)`).
 
 ## 4. Prueba funcional UX
 

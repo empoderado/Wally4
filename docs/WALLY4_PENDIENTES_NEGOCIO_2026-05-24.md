@@ -29,23 +29,23 @@ Decision:
 
 ### 2. AUD-POST-CIERRE
 
-Pendiente confirmar el criterio funcional de cierre de jornada para clasificar cambios posteriores al cierre.
+Estado: cerrado como regla funcional inicial.
 
 Contexto validado:
 
 - La vista expone `FlagCambioPosteriorCierre`.
 - La clasificacion actual considera riesgo medio cuando hay cambio posterior al cierre sin senales mas fuertes.
-- Falta confirmar si el cierre usado por sistema refleja el cierre operativo aceptado por negocio.
 
-Decision requerida:
+Decision:
 
-- Confirmar la fuente oficial de cierre.
-- Confirmar si el umbral debe ser cualquier cambio posterior al cierre o solo cambios con monto/usuario/transaccion especifica.
-- Definir si aplica distinto para traslados, notas de credito, pedidos y facturas.
+- Requiere cambio BIT real: `CantidadCambiosDetectados > 0`.
+- Excluye `Pedido` (`idTransaccionInv = 31`).
+- Excluye transferencias operativas entre sucursales (`idTransaccionInv IN (4, 5)`).
+- Usa el ultimo cierre de caja de la misma sucursal y fecha del documento.
 
 ### 3. Reportes ejecutivos de auditoria
 
-La Fase 3 queda pendiente hasta cerrar `AUD-POST-CIERRE`.
+La Fase 3 puede iniciar con estas reglas funcionales cerradas.
 
 Reportes propuestos:
 
