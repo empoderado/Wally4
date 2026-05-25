@@ -21,21 +21,21 @@ USING (
         (
             'AUD-POST-PAGO',
             'Cambio posterior al pago',
-            'Detecta documentos cuyo ultimo cambio BIT ocurre despues del ultimo pago registrado.',
+            'Detecta documentos cuyo ultimo cambio BIT ocurre despues del ultimo pago registrado. Excluye pedidos idTransaccionInv = 31.',
             'FlagCambioPosteriorPago',
             'pendiente_validacion'
         ),
         (
             'AUD-POST-CIERRE',
             'Cambio posterior al cierre',
-            'Detecta documentos cuyo ultimo cambio BIT ocurre despues del cierre de la misma jornada y sucursal.',
+            'Detecta documentos cuyo ultimo cambio BIT ocurre despues del cierre de la misma jornada y sucursal. Excluye pedidos idTransaccionInv = 31.',
             'FlagCambioPosteriorCierre',
             'pendiente_validacion'
         ),
         (
             'AUD-CAMBIO-TARDIO',
             'Cambio tardio',
-            'Detecta documentos con mas de 60 minutos entre primer registro BIT y ultimo cambio BIT, excluyendo transferencias operativas entre sucursales.',
+            'Detecta documentos con mas de 60 minutos entre primer registro BIT y ultimo cambio BIT, excluyendo transferencias operativas entre sucursales y pedidos.',
             'FlagCambioTardio',
             'pendiente_validacion'
         ),

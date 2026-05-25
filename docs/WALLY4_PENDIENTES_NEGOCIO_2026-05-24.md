@@ -24,7 +24,7 @@ Contexto validado:
 Decision:
 
 - `Pedido` no debe auditarse como cambio de vendedor.
-- `FlagCambioVendedor` excluye `idTransaccionInv = 31`.
+- Las banderas de auditoria excluyen `idTransaccionInv = 31`.
 - El caso historico de pedido queda como validacion funcional esperada en `0`.
 
 ### 2. AUD-POST-CIERRE

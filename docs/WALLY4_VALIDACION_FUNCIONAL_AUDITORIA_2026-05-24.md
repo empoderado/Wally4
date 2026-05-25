@@ -86,7 +86,7 @@ Hallazgo historico: solo se encontraron 7 casos con `FlagCambioVendedor = 1`, to
 
 La comparacion `VendedorInicial != VendedorFinalBIT` es tecnicamente consistente dentro de `BITMovimientoInv`: las secuencias BIT muestran cambios reales de `idEmpleado` y el ultimo valor coincide con `MovimientoInv.idEmpleadoVendedor` en las muestras revisadas.
 
-Decision funcional: negocio confirmo que `Pedido` (`idTransaccionInv = 31`) no debe auditarse como cambio de vendedor. `FlagCambioVendedor` excluye pedidos aunque exista diferencia tecnica entre `VendedorInicial` y `VendedorFinalBIT`.
+Decision funcional: negocio confirmo que `Pedido` (`idTransaccionInv = 31`) no debe auditarse. Las banderas de auditoria excluyen pedidos aunque exista diferencia tecnica entre `VendedorInicial` y `VendedorFinalBIT` o eventos BIT posteriores al cierre.
 
 ## Clasificacion funcional de alertas
 

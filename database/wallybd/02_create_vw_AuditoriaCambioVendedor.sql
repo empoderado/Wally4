@@ -18,8 +18,8 @@
       idTransaccionInv 4 = Exporta a Sucursal, 5 = Importa de Sucursal.
     - FlagPosibleNotaCredito usa idTransaccionInv = 10, validado en catalogo
       StudioF.dbo.TransaccionInv como "Nota de credito cliente".
-    - FlagCambioVendedor excluye pedidos: idTransaccionInv = 31. Negocio
-      confirmo que Pedido no debe auditarse como cambio de vendedor.
+    - Las banderas de auditoria excluyen pedidos: idTransaccionInv = 31.
+      Negocio confirmo que Pedido no debe auditarse.
 */
 
 USE WallyBD;
@@ -197,6 +197,7 @@ Core AS (
             CASE
                 WHEN agregado.FechaUltimoCambio IS NOT NULL
                  AND pagos.FechaUltimoPago IS NOT NULL
+                 AND mov.idTransaccionInv <> 31
                  AND DATEDIFF(SECOND, pagos.FechaUltimoPago, agregado.FechaUltimoCambio) > 60
                 THEN 1 ELSE 0
             END AS bit
@@ -206,6 +207,7 @@ Core AS (
             CASE
                 WHEN agregado.FechaUltimoCambio IS NOT NULL
                  AND cierres.FechaUltimoCierre IS NOT NULL
+                 AND mov.idTransaccionInv <> 31
                  AND agregado.FechaUltimoCambio > cierres.FechaUltimoCierre
                 THEN 1 ELSE 0
             END AS bit
@@ -221,6 +223,7 @@ Core AS (
                 WHEN agregado.FechaPrimerRegistro IS NOT NULL
                  AND agregado.FechaUltimoCambio IS NOT NULL
                  AND mov.idTransaccionInv NOT IN (4, 5)
+                 AND mov.idTransaccionInv <> 31
                  AND DATEDIFF(MINUTE, agregado.FechaPrimerRegistro, agregado.FechaUltimoCambio) > 60
                 THEN 1 ELSE 0
             END AS bit
