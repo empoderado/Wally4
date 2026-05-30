@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from modules import auditoria, config_wally, crm, dashboard_wally, embarques, existencias, gerencia, maria_agent, presupuesto, reportes, training, traslados
+from modules import asesores, auditoria, config_wally, crm, dashboard_wally, embarques, existencias, gerencia, maria_agent, presupuesto, reportes, training, traslados
 from services.env import env_value
 from services.local_store import init_store
 from services.paths import APP_DIR
@@ -319,6 +319,7 @@ div[data-testid="stNumberInput"] input {
 
 PAGES = {
     "Resumen Ventas": dashboard_wally.render,
+    "Asesores": asesores.render,
     "Gerencia": gerencia.render,
     "Existencias": existencias.render,
     "Embarques y Coleccion": embarques.render,
@@ -334,6 +335,7 @@ PAGES = {
 
 PAGE_VIEWS = {
     "Resumen Ventas": "dbo.VwFacturaConImpuesto",
+    "Asesores": "dbo.VwFacturaConImpuesto | SQLite local: pto_vendedor",
     "Gerencia": "dbo.VwFacturaConImpuesto",
     "Existencias": "dbo.VwExistencia",
     "Embarques y Coleccion": "dbo.VwFacturaConImpuesto | dbo.VwExistencia",

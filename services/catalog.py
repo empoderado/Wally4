@@ -8,6 +8,10 @@ REPORT_CODES = {
         "time_chart": ("G-DASH-02", "Venta por hora"),
         "branch_table": ("T-DASH-01", "Resumen por sucursal"),
     },
+    "asesores": {
+        "report": ("R-ASE-01", "Reporte diario y acumulado por asesores"),
+        "detail_table": ("T-ASE-01", "Detalle por sucursal, asesor, presupuesto y cumplimiento"),
+    },
     "gerencia": {
         "report": ("R-GER-01", "Kpis gerenciales"),
         "year_table": ("T-GER-01", "Comparativo de ventas por fecha en los ultimos 4 anios"),

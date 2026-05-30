@@ -358,6 +358,18 @@ def mock_read_sql(query: str, params: tuple | list | None = None) -> pd.DataFram
                 ]
             )
         return audit_rows
+    if "from dbo.vwfacturaconimpuesto" in normalized and "group by sucursal, cast(idvendedor as varchar(50)), vendedor" in normalized:
+        return _filter_mock_by_params(
+            pd.DataFrame(
+                [
+                    {"Sucursal": "OAKLAND", "IdVendedor": "101", "Asesor": "MARIA VALLE", "Unidades": 39, "VentaQ": 24014.0, "Facturas": 21, "MargenQ": 14200.0},
+                    {"Sucursal": "OAKLAND", "IdVendedor": "102", "Asesor": "ASHLEY GOMEZ", "Unidades": 38, "VentaQ": 23124.0, "Facturas": 19, "MargenQ": 13650.0},
+                    {"Sucursal": "PRADERA", "IdVendedor": "103", "Asesor": "EMILIN OADILLA", "Unidades": 24, "VentaQ": 12304.0, "Facturas": 21, "MargenQ": 7300.0},
+                    {"Sucursal": "PRADERA", "IdVendedor": "104", "Asesor": "KAREN LOPEZ", "Unidades": 25, "VentaQ": 15678.0, "Facturas": 19, "MargenQ": 8900.0},
+                ]
+            ),
+            params,
+        )
     if "from dbo.vwfacturaconimpuesto" in normalized and "group by sucursal" in normalized:
         return _filter_mock_by_params(
             pd.DataFrame(
