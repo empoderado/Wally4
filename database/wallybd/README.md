@@ -57,7 +57,7 @@ cd C:\Apps\Wally4
 ## Reglas actuales de auditoria
 
 - Las banderas de auditoria excluyen pedidos (`idTransaccionInv = 31`) por decision funcional de negocio.
-- `FlagCambioVendedor`: compara primer vendedor historico contra ultimo vendedor historico en `BITMovimientoInv`.
+- `FlagCambioVendedor`: compara el vendedor inicial de `BITMovimientoInv` contra el vendedor actual de `dbo.VwFacturaConImpuesto.IdVendedor` cuando existe factura en ventas. Si no existe venta asociada, conserva la comparacion contra el ultimo vendedor historico de `BITMovimientoInv`.
 - `FlagCambioPosteriorPago`: ultimo cambio mas de 60 segundos despues de `FechaUltimoPago`.
 - `FlagCambioPosteriorCierre`: `FechaUltimoCambio > FechaUltimoCierre`, usando cierre de la misma fecha del documento y sucursal; requiere `CantidadCambiosDetectados > 0` y excluye transferencias operativas.
 - `FlagCambioTardio`: ultimo cambio mas de 60 minutos despues del primer registro BIT, excluyendo transferencias operativas entre sucursales (`idTransaccionInv` 4 y 5).

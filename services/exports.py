@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 import pandas as pd
+import streamlit as st
 
 from services.paths import APP_DIR
 
@@ -109,6 +110,7 @@ def _column_width(df: pd.DataFrame, column: Any, sheet_name: str) -> int:
     return max(10, min(34, max(lengths or [10]) + 2))
 
 
+@st.cache_data(ttl=300, max_entries=32, show_spinner=False)
 def dataframe_to_excel_bytes(sheets: dict[str, Any] | Any) -> bytes:
     _configure_logger()
     output = io.BytesIO()

@@ -60,7 +60,7 @@ def extract_limit(normalized_text: str) -> int:
     match = re.search(r"\btop\s+(\d{1,2})\b", normalized_text)
     if match:
         return max(1, min(int(match.group(1)), 25))
-    match = re.search(r"\b(\d{1,2})\s+(primeros|principales|mayores)\b", normalized_text)
+    match = re.search(r"\b(\d{1,2})\s+(primeros|principales|mayores|ultimos|menores|peores)\b", normalized_text)
     if match:
         return max(1, min(int(match.group(1)), 25))
     return 10

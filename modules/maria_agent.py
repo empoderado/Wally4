@@ -1,96 +1,147 @@
 from __future__ import annotations
 
+from html import escape
+
 import streamlit as st
 
-from memory.store import memory_snapshot, remember
-from memory.store import recent_conversations
+from memory.conversation_context import clear_result_context, load_result_context
 from orchestration.maria_orchestrator import answer
-from services.local_store import DEFAULT_AGENT_PROMPT, get_param, set_param
-from services.ui import page_title, section_title
+from services.maria_ai import configuration_status
+from services.ui import page_title
 
 
+USER_ID = "local"
+WELCOME_MESSAGE = (
+    "Hola, soy **Mar-IA**. Puedo consultar datos autorizados de Wally, "
+    "recordar el contexto y ayudarte con analisis y planes de accion."
+)
 def render() -> None:
-    page_title("Mar-IA Agent", "Copiloto ejecutivo con memoria, SQL seguro y entrenamiento")
+    _inject_chat_styles()
+    page_title("Mar-IA", "Copiloto ejecutivo para consultar, analizar y tomar accion")
+    _ensure_session()
 
-    if "maria_messages" not in st.session_state:
-        st.session_state.maria_messages = [
-            {
-                "role": "assistant",
-                "content": "Hola, soy Mar-IA Agent. Puedo consultar ventas e inventario autorizado de Wally.",
-            }
-        ]
+    _render_status_header()
+    _render_messages()
 
-    for message in st.session_state.maria_messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    question = st.chat_input("Preguntale a Mar-IA Agent")
+    with st.container():
+        question = st.chat_input("Escribe una pregunta para Mar-IA")
     if question:
-        st.session_state.maria_messages.append({"role": "user", "content": question})
-        with st.chat_message("user"):
-            st.markdown(question)
-        response = answer(question, channel="app", user_id="local", user_name="Usuario local")
-        st.session_state.maria_messages.append({"role": "assistant", "content": response})
-        with st.chat_message("assistant"):
-            st.markdown(response)
+        _run_question(question)
+        st.rerun()
 
-    with st.expander("Configuracion del prompt base"):
-        prompt = st.text_area(
-            "Personalidad y reglas",
-            value=get_param("maria_agent_prompt", DEFAULT_AGENT_PROMPT),
-            height=260,
+
+def _ensure_session() -> None:
+    if "maria_messages" not in st.session_state:
+        st.session_state.maria_messages = [{"role": "assistant", "content": WELCOME_MESSAGE}]
+
+
+def _render_status_header() -> None:
+    ai_status = configuration_status()
+    context = load_result_context(USER_ID)
+    status_label = (
+        f"{ai_status['provider'].upper()} · {ai_status['model']}"
+        if ai_status["configured"]
+        else "Motor local"
+    )
+    context_parts = []
+    if context:
+        if context.focus_entity:
+            context_parts.append(f"{context.focus_label or 'Enfoque'}: {context.focus_entity}")
+        elif context.branch:
+            context_parts.append(f"Sucursal: {context.branch}")
+        if context.date_start and context.date_end:
+            period = context.date_label or f"{context.date_start} a {context.date_end}"
+            context_parts.append(f"Periodo: {period}")
+        context_parts.append(f"Consulta: {context.title}")
+    context_label = " · ".join(context_parts) if context_parts else "Sin contexto activo"
+
+    left, right = st.columns([0.78, 0.22], vertical_alignment="center")
+    with left:
+        st.markdown(
+            f"""
+            <div class="maria-status-card">
+                <div><span class="maria-status-dot"></span><strong>IA activa:</strong> {escape(status_label)}</div>
+                <div class="maria-context-line"><strong>Contexto:</strong> {escape(context_label)}</div>
+                <div class="maria-source-line">Datos de WallyBD · consultas de solo lectura</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        if st.button("Guardar prompt"):
-            set_param("maria_agent_prompt", prompt.strip() or DEFAULT_AGENT_PROMPT, "Prompt base editable de Mar-IA Agent")
-            st.success("Prompt guardado.")
+    with right:
+        if st.button("Nueva conversacion", key="maria_new_conversation", use_container_width=True):
+            st.session_state.maria_messages = [{"role": "assistant", "content": WELCOME_MESSAGE}]
+            clear_result_context(USER_ID)
+            st.rerun()
 
-    with st.expander("Memoria reciente"):
-        df = recent_conversations(limit=20)
-        if df.empty:
-            st.caption("Aun no hay conversaciones registradas.")
-        else:
-            st.dataframe(df, use_container_width=True, hide_index=True)
 
-    with st.expander("Memoria formal de Mar-IA"):
-        snapshot = memory_snapshot(user_id="local")
-        tab_short, tab_medium, tab_permanent, tab_add = st.tabs(["Corto plazo", "Mediano plazo", "Permanente", "Agregar"])
-        with tab_short:
-            st.caption("Conversaciones recientes usadas para contexto inmediato.")
-            if snapshot.short_term.empty:
-                st.caption("Sin memoria de corto plazo.")
-            else:
-                st.dataframe(snapshot.short_term, use_container_width=True, hide_index=True)
-        with tab_medium:
-            st.caption("Recuerdos temporales con vencimiento.")
-            if snapshot.medium_term.empty:
-                st.caption("Sin memoria de mediano plazo.")
-            else:
-                st.dataframe(snapshot.medium_term, use_container_width=True, hide_index=True)
-        with tab_permanent:
-            st.caption("Recuerdos aprobados sin vencimiento.")
-            if snapshot.permanent.empty:
-                st.caption("Sin memoria permanente.")
-            else:
-                st.dataframe(snapshot.permanent, use_container_width=True, hide_index=True)
-        with tab_add:
-            with st.form("manual_memory_form", clear_on_submit=True):
-                memory_type = st.selectbox("Tipo de memoria", ["medium", "permanent"], format_func=lambda value: "Mediano plazo" if value == "medium" else "Permanente")
-                key_text = st.text_input("Clave", placeholder="preferred_branch")
-                value_text = st.text_area("Valor", placeholder="OAKLAND")
-                days = st.number_input("Dias de vigencia", min_value=1, max_value=3650, value=90, disabled=memory_type == "permanent")
-                submitted = st.form_submit_button("Guardar memoria")
-                if submitted:
-                    if not key_text.strip() or not value_text.strip():
-                        st.warning("Debe indicar clave y valor.")
-                    else:
-                        remember(
-                            memory_type=memory_type,
-                            key_text=key_text,
-                            value_text=value_text,
-                            user_id="local",
-                            days=int(days),
-                        )
-                        st.success("Memoria guardada.")
+def _render_messages() -> None:
+    st.markdown('<div class="maria-chat-label">Conversacion</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        for message in st.session_state.maria_messages:
+            avatar = "👤" if message["role"] == "user" else "✨"
+            with st.chat_message(message["role"], avatar=avatar):
+                st.markdown(message["content"])
 
-    section_title("Estado")
-    st.info("Memoria activa: corto plazo por conversaciones, mediano plazo con vencimiento y permanente aprobada en SQLite.")
+
+def _run_question(question: str) -> None:
+    clean_question = question.strip()
+    if not clean_question:
+        return
+    st.session_state.maria_messages.append({"role": "user", "content": clean_question})
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(clean_question)
+    with st.chat_message("assistant", avatar="✨"):
+        with st.spinner("Mar-IA consulta y analiza la informacion..."):
+            response = answer(
+                clean_question,
+                channel="app",
+                user_id=USER_ID,
+                user_name="Usuario local",
+            )
+        st.markdown(response)
+    st.session_state.maria_messages.append({"role": "assistant", "content": response})
+
+
+def _inject_chat_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .maria-status-card {
+            border: 1px solid #e5e7eb;
+            border-left: 4px solid #ef4444;
+            border-radius: 12px;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #ffffff 0%, #fff7ed 100%);
+            margin-bottom: 6px;
+        }
+        .maria-status-dot {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            margin-right: 7px;
+            border-radius: 50%;
+            background: #22c55e;
+            box-shadow: 0 0 0 3px rgba(34,197,94,.14);
+        }
+        .maria-context-line { margin-top: 5px; color: #374151; }
+        .maria-source-line { margin-top: 3px; color: #6b7280; font-size: .82rem; }
+        .maria-chat-label {
+            margin: 14px 0 7px;
+            color: #374151;
+            font-size: .83rem;
+            font-weight: 800;
+            letter-spacing: .02em;
+            text-transform: uppercase;
+        }
+        div[data-testid="stChatMessage"] {
+            border-radius: 12px;
+            padding: 4px 8px;
+        }
+        div[data-testid="stChatInput"] {
+            border-top: 1px solid #e5e7eb;
+            padding-top: 8px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )

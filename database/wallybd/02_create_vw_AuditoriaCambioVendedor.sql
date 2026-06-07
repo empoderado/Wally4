@@ -7,8 +7,10 @@
 
     Validacion pendiente en produccion:
     - Confirmar que BITMovimientoInv.idEmpleado representa el vendedor historico.
-    - Confirmar que MovimientoInv.idEmpleadoCajero representa el vendedor/cajero actual
-      que debe compararse con BITMovimientoInv si el negocio lo requiere.
+    - FlagCambioVendedor compara BITMovimientoInv.idEmpleado inicial contra
+      dbo.VwFacturaConImpuesto.IdVendedor actual cuando la factura existe en ventas.
+      Si no existe venta asociada, conserva la comparacion historica BIT inicial/final.
+    - MovimientoInv.idEmpleadoCajero representa caja/cajero, no vendedor final.
     - Confirmar si MovCajaCierre.btFecha registra el cierre en la misma fecha de venta
       o si algunas tiendas cierran despues de medianoche. La regla actual usa la fecha
       del documento como jornada.
@@ -99,6 +101,16 @@ Cierres AS (
        AND CAST(cierre.btFecha AS date) = CAST(mov.Fecha AS date)
     GROUP BY mov.idSucursal, mov.idMovimientoInv
 ),
+VentaVendedor AS (
+    SELECT
+        Numero,
+        MIN(TRY_CONVERT(int, IdVendedor)) AS IdVendedorFactura,
+        MAX(LTRIM(RTRIM(Vendedor))) AS NombreVendedorFactura,
+        COUNT(DISTINCT TRY_CONVERT(int, IdVendedor)) AS CantidadVendedoresFactura
+    FROM dbo.VwFacturaConImpuesto
+    WHERE IdVendedor IS NOT NULL
+    GROUP BY Numero
+),
 Core AS (
     SELECT
         mov.idSucursal,
@@ -163,7 +175,11 @@ Core AS (
             CONVERT(varchar(20), primero.VendedorInicial)
         ) AS NombreVendedorInicial,
         ultimo.VendedorFinalBIT,
+        venta.IdVendedorFactura,
+        venta.NombreVendedorFactura,
+        ISNULL(venta.CantidadVendedoresFactura, 0) AS CantidadVendedoresFactura,
         COALESCE(
+            NULLIF(venta.NombreVendedorFactura COLLATE DATABASE_DEFAULT, ''),
             NULLIF(
                 CASE
                     WHEN LTRIM(RTRIM(ISNULL(vendedor_final.Nombres COLLATE DATABASE_DEFAULT, ''))) =
@@ -178,9 +194,9 @@ Core AS (
         CAST(
             CASE
                 WHEN primero.VendedorInicial IS NOT NULL
-                 AND ultimo.VendedorFinalBIT IS NOT NULL
                  AND mov.idTransaccionInv <> 31
-                 AND ISNULL(primero.VendedorInicial, -1) <> ISNULL(ultimo.VendedorFinalBIT, -1)
+                 AND COALESCE(venta.IdVendedorFactura, ultimo.VendedorFinalBIT) IS NOT NULL
+                 AND ISNULL(primero.VendedorInicial, -1) <> ISNULL(COALESCE(venta.IdVendedorFactura, ultimo.VendedorFinalBIT), -1)
                 THEN 1 ELSE 0
             END AS bit
         ) AS FlagCambioVendedor,
@@ -257,6 +273,8 @@ Core AS (
         ON vendedor_inicial.idEmpleado = primero.VendedorInicial
     LEFT JOIN Mirror.Empleado AS vendedor_final
         ON vendedor_final.idEmpleado = ultimo.VendedorFinalBIT
+    LEFT JOIN VentaVendedor AS venta
+        ON venta.Numero COLLATE DATABASE_DEFAULT = mov.Numero COLLATE DATABASE_DEFAULT
     LEFT JOIN Pagos AS pagos
         ON pagos.idSucursal = mov.idSucursal
        AND pagos.idMovimientoInv = mov.idMovimientoInv

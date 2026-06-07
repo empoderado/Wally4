@@ -46,7 +46,7 @@ def _line_group_mapping(start_date, end_date) -> dict[str, str]:
                     UPPER(LTRIM(RTRIM(CAST(Linea AS varchar(250))))) AS LineaOriginal,
                     {sales_expr} AS LineaAgrupada
                 FROM {db.VIEW_VENTAS}
-                WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+                WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
                   AND Linea IS NOT NULL
                   AND LTRIM(RTRIM(CAST(Linea AS varchar(250)))) <> ''
                 """,

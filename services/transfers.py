@@ -5,6 +5,7 @@ from datetime import datetime
 import pandas as pd
 
 from services import db
+from services.branches import filter_frame
 from services.local_store import connect
 
 
@@ -107,6 +108,7 @@ def load_branch_priorities(branches: list[str] | None = None) -> pd.DataFrame:
         existing = pd.DataFrame(columns=["Sucursal", "Prioridad"])
     existing["Sucursal"] = existing["Sucursal"].map(display_branch)
     existing = existing.drop_duplicates("Sucursal", keep="last")
+    existing = filter_frame(existing, ["Sucursal"])
     priorities = dict(zip(existing["Sucursal"], existing["Prioridad"]))
 
     rows = []

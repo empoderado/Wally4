@@ -28,10 +28,49 @@ def detect_intent(text: str) -> str:
             return "best_customer"
         return "best_customer"
 
+    seller_terms = ["vendedor", "vendedora", "vendedores", "vendedoras", "asesor", "asesora", "asesores", "asesoras"]
+    product_terms = [
+        "merchan",
+        "merchant",
+        "merchand",
+        "merchandising",
+        "jean",
+        "jeans",
+        "bolso",
+        "bolsos",
+    ]
+    quantity_sales_terms = ["cuanto", "cuantos", "cantidad", "unidad", "unidades", "vendido", "vendidos", "vendida", "vendidas"]
+    if (
+        has_any(normalized, product_terms)
+        and (
+            has_any(normalized, quantity_sales_terms)
+            or has_any(normalized, ["venta", "ventas", "facturacion"])
+        )
+        and not has_any(normalized, seller_terms)
+    ):
+        return "sales_by_branch"
+
+    seller_performance_terms = [
+        "mejor",
+        "peor",
+        "ranking",
+        "rendimiento",
+        "desempeno",
+        "vendio mas",
+        "vendio menos",
+        "mayor venta",
+        "menor venta",
+        "top",
+        "ultima",
+        "ultimas",
+    ]
+    if has_any(normalized, seller_terms) and has_any(normalized, seller_performance_terms):
+        return "sales_by_seller"
+
     if has_any(normalized, ["venta", "ventas", "facturacion"]):
         if has_any(normalized, ["comparativo", "comparar", "historico", "ultimos 4", "anos", "anual"]):
             return "sales_year_comparison"
-        if has_any(normalized, ["vendedor", "asesor", "asesora"]):
+        if has_any(normalized, seller_terms):
             return "sales_by_seller"
         if has_any(normalized, ["embarque", "embarques"]):
             return "sales_by_shipment"

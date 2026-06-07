@@ -172,7 +172,7 @@ def _build_sales_plan(question: str, normalized: str, context: QueryContext) -> 
     dimensions = _detect_dimensions(normalized, SALES_DIMENSIONS) or ["Sucursal"]
     measures = _detect_sales_measures(normalized)
     order_by = _detect_order_by(normalized, measures)
-    where_sql = ["CAST(Fecha AS date) BETWEEN ? AND ?", "Trn = 'FV'"]
+    where_sql = ["Fecha >= ? AND Fecha < DATEADD(day, 1, ?)", "Trn = 'FV'"]
     params: list = [dates.start, dates.end]
     if context.branch:
         where_sql.append("Sucursal = ?")

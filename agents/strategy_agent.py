@@ -16,6 +16,9 @@ STRATEGY_TERMS = [
     "estrategias",
     "plan de accion",
     "plan accion",
+    "plan de acion",
+    "plan",
+    "acion",
     "recomendacion",
     "recomendaciones",
     "mejorar",
@@ -109,7 +112,10 @@ def _sales_insights(df: pd.DataFrame) -> list[str]:
         summary_parts.append(f"margen {money(total_margen)}")
     lines = [f"**Resumen:** {', '.join(summary_parts)}."]
 
-    if venta_col and label_col:
+    if venta_col and label_col and len(df) == 1:
+        row = df.iloc[0]
+        lines.append(f"**Lectura clave:** {row[label_col]} registro {money(row[venta_col])} en el periodo analizado.")
+    elif venta_col and label_col:
         ranked = df.sort_values(venta_col, ascending=False)
         top = ranked.iloc[0]
         low = ranked.iloc[-1]

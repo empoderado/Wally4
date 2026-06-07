@@ -7,11 +7,10 @@ APP_DIR = Path(__file__).resolve().parents[1]
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-import requests
-
 from services import db
 from services.env import env_value
 from services.local_store import connect, init_store
+from services.telegram import get_telegram_config, test_telegram_connection
 from services.view_schema import required_columns
 
 
@@ -71,21 +70,18 @@ def check_sql() -> None:
 
 
 def check_telegram() -> None:
-    token = env_value("TELEGRAM_BOT_TOKEN")
-    if not token:
-        warn("Telegram", "TELEGRAM_BOT_TOKEN no esta configurado")
+    config = get_telegram_config()
+    if not config.enabled:
+        warn("Telegram", "el canal esta desactivado")
         return
-    try:
-        response = requests.post(f"https://api.telegram.org/bot{token}/getMe", timeout=15)
-        response.raise_for_status()
-        data = response.json()
-        if data.get("ok"):
-            result = data.get("result", {})
-            ok("Telegram", f"bot conectado: @{result.get('username', 'sin_usuario')}")
-        else:
-            fail("Telegram", str(data))
-    except Exception as exc:
-        fail("Telegram", str(exc))
+    if not config.token:
+        warn("Telegram", "el token no esta configurado")
+        return
+    connected, message = test_telegram_connection(config.token, config.api_url)
+    if connected:
+        ok("Telegram", message)
+    else:
+        fail("Telegram", message)
 
 
 def main() -> None:

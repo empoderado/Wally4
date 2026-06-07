@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from services import db
+from services.branches import filter_frame
 from services.catalog import get_code
 from services.exports import dataframe_to_excel_bytes, export_filename
 from services.formatting import money, number
@@ -28,6 +29,7 @@ DIAS_ES = {
 
 BRANCH_REQUIRED = ["codigoSucursal", "nombreSucursal", "fecha", "unidades", "valorPresupuesto"]
 SELLER_REQUIRED = ["idVendedor", "nombreVendedor", "idSucursal", "nombreSucursal", "fecha", "unidades", "vrPresupuesto"]
+SELLER_UPLOAD_COLUMNS = SELLER_REQUIRED.copy()
 LINE_BRANCH_REQUIRED = ["fecha", "idLinea", "linea", "unidades", "ventaQ", "idSucursal", "sucursal"]
 LINE_BRANCH_UPLOAD_COLUMNS = ["Fecha", "Idlinea", "CODLinea", "Unidades", "Quetzal", "Idsucursal", "Sucursal"]
 LINE_BRANCH_UPLOAD_RENAME = dict(zip(LINE_BRANCH_UPLOAD_COLUMNS, LINE_BRANCH_REQUIRED))
@@ -246,6 +248,32 @@ def _validate_budget_frame(df: pd.DataFrame, required: list[str], numeric_cols: 
     return valid, pd.DataFrame(errors)
 
 
+def _validate_seller_budget_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    data = _normalize_columns(df)
+    actual_columns = list(data.columns)
+    if actual_columns != SELLER_UPLOAD_COLUMNS:
+        expected = ", ".join(SELLER_UPLOAD_COLUMNS)
+        received = ", ".join(actual_columns)
+        return pd.DataFrame(), pd.DataFrame(
+            [
+                {
+                    "Fila": 0,
+                    "Error": (
+                        "Columnas invalidas para F-PTO-02. "
+                        f"El archivo debe contener exactamente estas columnas y en este orden: {expected}. "
+                        f"Columnas recibidas: {received}"
+                    ),
+                }
+            ]
+        )
+    return _validate_budget_frame(
+        data,
+        SELLER_REQUIRED,
+        ["unidades", "vrPresupuesto"],
+        ["idVendedor", "idSucursal", "fecha"],
+    )
+
+
 def _validate_line_branch_budget_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     data = _normalize_columns(df)
     errors: list[dict] = []
@@ -384,16 +412,31 @@ def _upsert_seller_budget(df: pd.DataFrame, overwrite: bool) -> tuple[int, int, 
     updated = 0
     errors: list[dict] = []
     now = datetime.now().isoformat(timespec="seconds")
+    records = []
     try:
+        existing_keys = {
+            (str(row["id_vendedor"]), str(row["id_sucursal"]), str(row["fecha"]))
+            for row in conn.execute("SELECT id_vendedor, id_sucursal, fecha FROM pto_vendedor").fetchall()
+        }
         for idx, row in df.iterrows():
-            existing = conn.execute(
-                "SELECT id FROM pto_vendedor WHERE id_vendedor = ? AND id_sucursal = ? AND fecha = ?",
-                (row["idVendedor"], row["idSucursal"], row["fecha"].isoformat()),
-            ).fetchone()
-            if existing and not overwrite:
+            key = (str(row["idVendedor"]), str(row["idSucursal"]), row["fecha"].isoformat())
+            if key in existing_keys and not overwrite:
                 errors.append({"Fila": int(idx) + 2, "Error": "Ya existe presupuesto para el mismo vendedor, sucursal y fecha", "Datos": json.dumps(row.to_dict(), default=str, ensure_ascii=False)})
                 continue
-            conn.execute(
+            records.append(
+                (
+                    row["idVendedor"], row["nombreVendedor"], row["idSucursal"], row["nombreSucursal"], row["fecha"].isoformat(),
+                    float(row["unidades"]), float(row["vrPresupuesto"]), int(row["anio"]), int(row["mes"]), int(row["dia"]),
+                    row["dia_semana"], int(row["semana_mes"]), row["semana_inicio"], row["semana_fin"], now, now,
+                )
+            )
+            if key in existing_keys:
+                updated += 1
+            else:
+                inserted += 1
+                existing_keys.add(key)
+        if records:
+            conn.executemany(
                 """
                 INSERT INTO pto_vendedor (
                     id_vendedor, nombre_vendedor, id_sucursal, nombre_sucursal, fecha, unidades, vr_presupuesto,
@@ -414,16 +457,8 @@ def _upsert_seller_budget(df: pd.DataFrame, overwrite: bool) -> tuple[int, int, 
                     semana_fin = excluded.semana_fin,
                     updated_at = excluded.updated_at
                 """,
-                (
-                    row["idVendedor"], row["nombreVendedor"], row["idSucursal"], row["nombreSucursal"], row["fecha"].isoformat(),
-                    float(row["unidades"]), float(row["vrPresupuesto"]), int(row["anio"]), int(row["mes"]), int(row["dia"]),
-                    row["dia_semana"], int(row["semana_mes"]), row["semana_inicio"], row["semana_fin"], now, now,
-                ),
+                records,
             )
-            if existing:
-                updated += 1
-            else:
-                inserted += 1
         conn.commit()
     finally:
         conn.close()
@@ -499,11 +534,12 @@ def _upsert_line_branch_budget(df: pd.DataFrame, overwrite: bool) -> tuple[int, 
 def _read_local_table(table: str, start_date: date, end_date: date) -> pd.DataFrame:
     conn = connect()
     try:
-        return pd.read_sql_query(
+        data = pd.read_sql_query(
             f"SELECT * FROM {table} WHERE fecha BETWEEN ? AND ?",
             conn,
             params=(start_date.isoformat(), end_date.isoformat()),
         )
+        return filter_frame(data, ["nombre_sucursal", "sucursal"])
     finally:
         conn.close()
 
@@ -517,7 +553,7 @@ def _real_sales_by_branch(start_date: date, end_date: date) -> pd.DataFrame:
             SUM(ISNULL(Unidades, 0)) AS unidades_reales,
             SUM(ISNULL(VentaNetaQ, 0)) AS venta_real
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
           AND Trn = 'FV'
         GROUP BY CAST(Fecha AS date), Sucursal
         """,
@@ -536,7 +572,7 @@ def _real_sales_by_seller(start_date: date, end_date: date) -> pd.DataFrame:
             SUM(ISNULL(Unidades, 0)) AS unidades_reales,
             SUM(ISNULL(VentaNetaQ, 0)) AS venta_real
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
           AND Trn = 'FV'
         GROUP BY CAST(Fecha AS date), CAST(IdVendedor AS varchar(50)), Vendedor, Sucursal
         """,
@@ -932,6 +968,7 @@ def _import_tab(kind: str) -> None:
         title = "Importar presupuesto por sucursal"
     elif kind == "seller":
         required = SELLER_REQUIRED
+        upload_required = SELLER_UPLOAD_COLUMNS
         numeric_cols = ["unidades", "vrPresupuesto"]
         key_cols = ["idVendedor", "idSucursal", "fecha"]
         code = get_code("presupuesto", "import_seller")
@@ -948,7 +985,7 @@ def _import_tab(kind: str) -> None:
     uploaded = st.file_uploader("Archivo Excel", type=["xlsx", "xls"], key=f"pto_upload_{kind}")
     overwrite = st.checkbox("Sobrescribir registros existentes", value=True, key=f"pto_overwrite_{kind}")
     if not uploaded:
-        if kind == "line_branch":
+        if kind in {"seller", "line_branch"}:
             st.caption("Columnas obligatorias en este orden: " + ", ".join(upload_required))
         else:
             st.caption("Columnas obligatorias: " + ", ".join(required))
@@ -962,7 +999,9 @@ def _import_tab(kind: str) -> None:
         code_footer(*code)
         return
 
-    if kind == "line_branch":
+    if kind == "seller":
+        valid, errors = _validate_seller_budget_frame(raw)
+    elif kind == "line_branch":
         valid, errors = _validate_line_branch_budget_frame(raw)
     else:
         valid, errors = _validate_budget_frame(raw, required, numeric_cols, key_cols)
@@ -1010,9 +1049,15 @@ def render() -> None:
     code_footer(*get_code("presupuesto", "report"))
     start_date, end_date = _date_controls()
 
-    tab_report_branch, tab_report_seller = st.tabs(["Reporte Sucursal", "Reporte Vendedor"])
+    report_view = st.radio(
+        "Vista de presupuesto",
+        ["Reporte Sucursal", "Reporte Vendedor"],
+        horizontal=True,
+        key="pto_report_view",
+        label_visibility="collapsed",
+    )
 
-    with tab_report_branch:
+    if report_view == "Reporte Sucursal":
         branch_budget = _read_local_table("pto_sucursal", start_date, end_date)
         if not branch_budget.empty:
             branch_budget["fecha"] = pd.to_datetime(branch_budget["fecha"]).dt.date
@@ -1060,7 +1105,7 @@ def render() -> None:
             )
         code_footer(*get_code("presupuesto", "branch_units_matrix"))
 
-    with tab_report_seller:
+    if report_view == "Reporte Vendedor":
         seller_budget = _read_local_table("pto_vendedor", start_date, end_date)
         sucursales = ["Todas"] + sorted(seller_budget["nombre_sucursal"].dropna().unique().tolist()) if not seller_budget.empty else ["Todas"]
         vendedores = ["Todos"] + sorted(seller_budget["nombre_vendedor"].dropna().unique().tolist()) if not seller_budget.empty else ["Todos"]

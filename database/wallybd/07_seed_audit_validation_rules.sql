@@ -14,7 +14,7 @@ USING (
         (
             'AUD-CAMBIO-VENDEDOR',
             'Cambio de vendedor',
-            'Compara el primer vendedor historico contra el ultimo vendedor historico registrado en BITMovimientoInv. Excluye pedidos idTransaccionInv = 31 por decision de negocio.',
+            'Compara el vendedor inicial de BITMovimientoInv contra el vendedor actual de dbo.VwFacturaConImpuesto.IdVendedor cuando existe factura en ventas; si no existe, compara contra el ultimo vendedor BIT. Excluye pedidos idTransaccionInv = 31 por decision de negocio.',
             'FlagCambioVendedor',
             'validacion_funcional_ok'
         ),

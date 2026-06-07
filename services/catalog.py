@@ -78,11 +78,6 @@ REPORT_CODES = {
         "detail_table": ("T-AUD-01", "Detalle de alertas de auditoria"),
         "users_table": ("T-AUD-02", "Usuarios con modificaciones"),
     },
-    "reportes": {
-        "report": ("R-REP-01", "Módulo general de reportes"),
-        "custom_chart": ("G-REP-01", "Grafico configurable del reporte seleccionado"),
-        "detail_table": ("T-REP-01", "Detalle del reporte seleccionado"),
-    },
 }
 
 

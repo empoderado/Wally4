@@ -143,7 +143,7 @@ def consulta_ventas(
         SELECT {top_clause}
             {", ".join(select_dims + select_mets)}
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
         {"GROUP BY " + group_by if group_by else ""}
         ORDER BY {order_metric} {order_dir}
     """
@@ -239,7 +239,7 @@ def proyeccion_mes_por_sucursal(anio: int | None = None, mes: int | None = None)
             SUM(ISNULL(VentaNetaQ, 0)) / NULLIF(COUNT(DISTINCT CAST(Fecha AS date)), 0) AS PromedioDiaConVentaQ,
             COUNT(DISTINCT CAST(Fecha AS date)) AS DiasConVenta
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
         GROUP BY Sucursal
         ORDER BY VentaAcumuladaQ DESC
         """,

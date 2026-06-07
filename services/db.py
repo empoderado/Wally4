@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import warnings
 import re
+from collections import OrderedDict
 from datetime import date, timedelta
+from threading import RLock
+from time import monotonic
 
 import pandas as pd
 
@@ -23,7 +26,18 @@ VIEW_ENTRADAS = "dbo.VwEntradasInventario"
 VIEW_CRM = "dbo.VwClienteResumenCRM"
 VIEW_AUDITORIA_CAMBIO_VENDEDOR = "dbo.vw_AuditoriaCambioVendedor"
 AUTHORIZED_VIEWS = {VIEW_VENTAS, VIEW_EXISTENCIA, VIEW_ENTRADAS, VIEW_CRM, VIEW_AUDITORIA_CAMBIO_VENDEDOR}
+VIEW_BRANCH_COLUMNS = {
+    VIEW_VENTAS: "Sucursal",
+    VIEW_EXISTENCIA: "Sucursal",
+    VIEW_ENTRADAS: "Sucursal",
+    VIEW_CRM: "SucursalPreferida",
+    VIEW_AUDITORIA_CAMBIO_VENDEDOR: "Sucursal",
+}
 REQUIRED_SQL_DATABASE = "WallyBD"
+QUERY_CACHE_TTL_SECONDS = 60
+QUERY_CACHE_MAX_ENTRIES = 64
+_QUERY_CACHE: OrderedDict[tuple[str, tuple], tuple[float, pd.DataFrame]] = OrderedDict()
+_QUERY_CACHE_LOCK = RLock()
 
 
 def load_environment() -> None:
@@ -89,16 +103,86 @@ def get_connection():
     return pyodbc.connect(connection_string(), timeout=30)
 
 
-def read_sql(query: str, params: tuple | list | None = None) -> pd.DataFrame:
-    if not is_safe_select(query):
-        raise PermissionError("Por favor por seguridad primero discuteelo con el administrador.")
+def _query_cache_key(query: str, params: tuple) -> tuple[str, tuple]:
+    normalized_params = tuple((type(value).__qualname__, repr(value)) for value in params)
+    return query, normalized_params
+
+
+def _read_sql_uncached(query: str, params: tuple) -> pd.DataFrame:
     if use_mock_data():
-        return mock_read_sql(query, params=params or [])
+        return mock_read_sql(query, params=params)
     conn = get_connection()
     try:
-        return pd.read_sql(query, conn, params=params or [])
+        return pd.read_sql(query, conn, params=params)
     finally:
         conn.close()
+
+
+def _apply_branch_scope(query: str) -> str:
+    from services.branches import sql_excluded_branch_values
+
+    excluded_values = sql_excluded_branch_values()
+    if not excluded_values:
+        return query
+    literals = sql_literal_list(excluded_values)
+    scope_names = {
+        VIEW_VENTAS: "WallyScopeVentas",
+        VIEW_EXISTENCIA: "WallyScopeExistencia",
+        VIEW_ENTRADAS: "WallyScopeEntradas",
+        VIEW_CRM: "WallyScopeCRM",
+        VIEW_AUDITORIA_CAMBIO_VENDEDOR: "WallyScopeAuditoria",
+    }
+    scoped = query
+    ctes = []
+    for view_name, column_name in VIEW_BRANCH_COLUMNS.items():
+        if view_name.lower() not in query.lower():
+            continue
+        scope_name = scope_names[view_name]
+        condition = (
+            f"UPPER(LTRIM(RTRIM(CAST({column_name} AS varchar(250))))) "
+            f"NOT IN ({literals})"
+        )
+        ctes.append(f"{scope_name} AS (SELECT * FROM {view_name} WHERE {condition})")
+        scoped = re.sub(re.escape(view_name), scope_name, scoped, flags=re.IGNORECASE)
+    if not ctes:
+        return query
+    stripped = scoped.lstrip()
+    leading = scoped[: len(scoped) - len(stripped)]
+    if stripped.lower().startswith("with "):
+        return f"{leading}WITH {', '.join(ctes)}, {stripped[5:]}"
+    return f"{leading}WITH {', '.join(ctes)} {stripped}"
+
+
+def read_sql(query: str, params: tuple | list | None = None, apply_branch_filter: bool = True) -> pd.DataFrame:
+    if not is_safe_select(query):
+        raise PermissionError("Por favor por seguridad primero discuteelo con el administrador.")
+    effective_query = _apply_branch_scope(query) if apply_branch_filter else query
+    normalized_params = tuple(params or ())
+    cache_key = _query_cache_key(effective_query, normalized_params)
+    now = monotonic()
+    with _QUERY_CACHE_LOCK:
+        cached = _QUERY_CACHE.get(cache_key)
+        if cached and cached[0] > now:
+            _QUERY_CACHE.move_to_end(cache_key)
+            return cached[1].copy(deep=True)
+        if cached:
+            _QUERY_CACHE.pop(cache_key, None)
+
+    result = _read_sql_uncached(effective_query, normalized_params)
+    with _QUERY_CACHE_LOCK:
+        expired_keys = [key for key, (expires_at, _) in _QUERY_CACHE.items() if expires_at <= now]
+        for key in expired_keys:
+            _QUERY_CACHE.pop(key, None)
+        _QUERY_CACHE[cache_key] = (monotonic() + QUERY_CACHE_TTL_SECONDS, result.copy(deep=True))
+        _QUERY_CACHE.move_to_end(cache_key)
+        while len(_QUERY_CACHE) > QUERY_CACHE_MAX_ENTRIES:
+            _QUERY_CACHE.popitem(last=False)
+    return result
+
+
+def clear_query_cache() -> None:
+    with _QUERY_CACHE_LOCK:
+        _QUERY_CACHE.clear()
 
 
 def is_safe_select(query: str) -> bool:

@@ -65,7 +65,7 @@ def render() -> None:
                     COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
                     SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
                 FROM {db.VIEW_VENTAS}
-                WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+                WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
                   AND {where_extra}
                   AND CodEmbarqueAbreviado IS NOT NULL
                 GROUP BY Sucursal, CodEmbarqueAbreviado, Coleccion_EN

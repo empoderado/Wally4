@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from services import db
+from services.branches import filter_frame
 from services.catalog import get_code
 from services.exports import dataframe_to_excel_bytes, export_filename
 from services.filters import optional_multiselect
@@ -28,6 +29,9 @@ REPORT_COLUMNS = [
     "CumplimientoUnidades",
     "CumplimientoVenta",
 ]
+
+ACCUMULATED_COLUMNS = REPORT_COLUMNS + ["Pendiente"]
+ADVISOR_MAX_WIDTH_CH = 32
 
 
 def _month_start(value: date) -> date:
@@ -53,7 +57,7 @@ def _date_filters() -> tuple[date, date]:
 
 
 def _where_filters(sucursales: list[str], vendedores: list[str]) -> str:
-    clauses = ["Trn = 'FV'"]
+    clauses = ["1=1"]
     if sucursales:
         clauses.append(f"Sucursal IN ({db.sql_literal_list(sucursales)})")
     if vendedores:
@@ -98,10 +102,11 @@ def _read_sales(start_date: date, end_date: date, sucursales: list[str], vendedo
             Vendedor AS Asesor,
             SUM(ISNULL(Unidades, 0)) AS Unidades,
             SUM(ISNULL(VentaNetaQ, 0)) AS VentaQ,
+            SUM(CASE WHEN Trn = 'FV' THEN ISNULL(Unidades, 0) ELSE 0 END) AS UnidadesUPT,
             COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
             SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
           AND {where_extra}
         GROUP BY Sucursal, CAST(IdVendedor AS varchar(50)), Vendedor
         ORDER BY Sucursal, VentaQ DESC
@@ -136,7 +141,7 @@ def _read_budget(start_date: date, end_date: date, sucursales: list[str], vended
     if sucursales and not budget.empty:
         selected = {_normalize_branch(branch) for branch in sucursales}
         budget = budget[budget["Sucursal"].map(_normalize_branch).isin(selected)].reset_index(drop=True)
-    return budget
+    return filter_frame(budget, ["Sucursal"])
 
 
 def _normalize_frame(data: pd.DataFrame, columns: dict[str, object]) -> pd.DataFrame:
@@ -150,7 +155,7 @@ def _normalize_frame(data: pd.DataFrame, columns: dict[str, object]) -> pd.DataF
 def _build_block(start_date: date, end_date: date, sucursales: list[str], vendedores: list[str]) -> pd.DataFrame:
     sales = _normalize_frame(
         _read_sales(start_date, end_date, sucursales, vendedores),
-        {"Sucursal": "", "IdVendedor": "", "Asesor": "", "Unidades": 0, "VentaQ": 0, "Facturas": 0, "MargenQ": 0},
+        {"Sucursal": "", "IdVendedor": "", "Asesor": "", "Unidades": 0, "VentaQ": 0, "UnidadesUPT": 0, "Facturas": 0, "MargenQ": 0},
     )
     budget = _normalize_frame(
         _read_budget(start_date, end_date, sucursales, vendedores),
@@ -170,7 +175,7 @@ def _build_block(start_date: date, end_date: date, sucursales: list[str], vended
     budget_advisor = data.get("Asesor_Ppto", "").fillna("").astype(str).str.strip()
     data["Asesor"] = data["Asesor"].mask(data["Asesor"].eq(""), budget_advisor)
     data = data.drop(columns=[col for col in ["Sucursal_Venta", "Sucursal_Ppto", "SucursalKey", "Asesor_Venta", "Asesor_Ppto"] if col in data.columns])
-    for column in ["Unidades", "VentaQ", "Facturas", "MargenQ", "PptoUnidades", "PptoVenta"]:
+    for column in ["Unidades", "VentaQ", "UnidadesUPT", "Facturas", "MargenQ", "PptoUnidades", "PptoVenta"]:
         data[column] = pd.to_numeric(data[column], errors="coerce").fillna(0)
     for column in ["Sucursal", "IdVendedor", "Asesor"]:
         data[column] = data[column].fillna("").astype(str).str.strip()
@@ -181,11 +186,12 @@ def _build_block(start_date: date, end_date: date, sucursales: list[str], vended
 def _add_calculated_columns(data: pd.DataFrame) -> pd.DataFrame:
     frame = data.copy()
     frame["TicketPromedio"] = frame["VentaQ"] / frame["Facturas"].replace({0: pd.NA})
-    frame["UPT"] = frame["Unidades"] / frame["Facturas"].replace({0: pd.NA})
+    frame["UPT"] = frame["UnidadesUPT"] / frame["Facturas"].replace({0: pd.NA})
     frame["VrUnidadPromedio"] = frame["VentaQ"] / frame["Unidades"].replace({0: pd.NA})
     frame["PorcMargen"] = frame["MargenQ"] / frame["VentaQ"].replace({0: pd.NA})
     frame["CumplimientoUnidades"] = frame["Unidades"] / frame["PptoUnidades"].replace({0: pd.NA})
     frame["CumplimientoVenta"] = frame["VentaQ"] / frame["PptoVenta"].replace({0: pd.NA})
+    frame["Pendiente"] = frame["PptoVenta"] - frame["VentaQ"]
     for column in [
         "TicketPromedio",
         "UPT",
@@ -193,6 +199,7 @@ def _add_calculated_columns(data: pd.DataFrame) -> pd.DataFrame:
         "PorcMargen",
         "CumplimientoUnidades",
         "CumplimientoVenta",
+        "Pendiente",
     ]:
         frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0)
     return frame
@@ -205,6 +212,7 @@ def _subtotal_row(group: pd.DataFrame, branch: str) -> pd.Series:
         "Asesor": f"SubTotal {branch}",
         "Unidades": group["Unidades"].sum(),
         "VentaQ": group["VentaQ"].sum(),
+        "UnidadesUPT": group["UnidadesUPT"].sum(),
         "Facturas": group["Facturas"].sum(),
         "MargenQ": group["MargenQ"].sum(),
         "PptoUnidades": group["PptoUnidades"].sum(),
@@ -245,7 +253,7 @@ def _format_pct(value) -> str:
 def _format_cell(column: str, value) -> str:
     if pd.isna(value) or value == "":
         return ""
-    if column in {"VentaQ", "TicketPromedio", "VrUnidadPromedio", "PptoVenta"}:
+    if column in {"VentaQ", "TicketPromedio", "VrUnidadPromedio", "PptoVenta", "Pendiente"}:
         return money(value)
     if column in {"PorcMargen", "CumplimientoUnidades", "CumplimientoVenta"}:
         return _format_pct(value)
@@ -262,6 +270,18 @@ def _cell(block: pd.DataFrame, branch: str, advisor: str, is_subtotal: bool, col
     if found.empty:
         return ""
     return _format_cell(column, found.iloc[0].get(column, ""))
+
+
+def _pending_cell(block: pd.DataFrame, branch: str, advisor: str, is_subtotal: bool) -> str:
+    if block.empty:
+        return "<td></td>"
+    mask = (block["Sucursal"].astype(str) == branch) & (block["Asesor"].astype(str) == advisor) & (block["EsSubtotal"].astype(bool) == is_subtotal)
+    found = block.loc[mask]
+    if found.empty:
+        return "<td></td>"
+    value = float(found.iloc[0].get("Pendiente", 0) or 0)
+    css_class = "wally-pending-positive" if value > 0 else ("wally-pending-negative" if value < 0 else "")
+    return f"<td class='{css_class}'>{escape(money(abs(value)))}</td>"
 
 
 def _report_css() -> None:
@@ -294,6 +314,9 @@ def _report_css() -> None:
             font-weight: 850;
             text-transform: uppercase;
             text-align: center;
+            white-space: normal;
+            line-height: 1.12;
+            vertical-align: middle;
         }
         table.wally-advisors th.wally-period {
             background: #eef2ff;
@@ -316,6 +339,11 @@ def _report_css() -> None:
         table.wally-advisors td.wally-advisor {
             text-align: left;
         }
+        table.wally-advisors td.wally-advisor {
+            max-width: 32ch;
+            white-space: normal;
+            overflow-wrap: break-word;
+        }
         table.wally-advisors tr.wally-alt td {
             background: #f8fafc;
         }
@@ -324,6 +352,14 @@ def _report_css() -> None:
             color: #0f172a;
             font-weight: 850;
             border-top: 2px solid #334155;
+        }
+        table.wally-advisors td.wally-pending-positive {
+            color: #b91c1c !important;
+            font-weight: 850;
+        }
+        table.wally-advisors td.wally-pending-negative {
+            color: #15803d !important;
+            font-weight: 850;
         }
         </style>
         """,
@@ -339,6 +375,109 @@ def _row_order(daily_rows: pd.DataFrame, accumulated_rows: pd.DataFrame) -> pd.D
     return ordered
 
 
+def _column_labels() -> dict[str, str]:
+    return {
+        "Unidades": "Unidades",
+        "VentaQ": "Venta Neta Q",
+        "Facturas": "Facturas",
+        "TicketPromedio": "Ticket Promedio",
+        "UPT": "UPT",
+        "VrUnidadPromedio": "Vr Unidad Promedio",
+        "PorcMargen": "% Margen",
+        "PptoUnidades": "Unidades",
+        "PptoVenta": "Venta",
+        "CumplimientoUnidades": "% Unidades",
+        "CumplimientoVenta": "% Venta",
+        "Pendiente": "Pendiente",
+    }
+
+
+def _header_html(label: str) -> str:
+    return "<br>".join(escape(part) for part in label.split())
+
+
+def _column_width_chars(rows: pd.DataFrame, column: str, label: str) -> int:
+    header_width = max((len(part) for part in label.split()), default=len(label))
+    if column == "Sucursal":
+        values = rows.get("Sucursal", pd.Series(dtype=object)).fillna("").astype(str)
+        return max(header_width, max((len(value) for value in values), default=0))
+    if column == "Asesor":
+        values = rows.get("Asesor", pd.Series(dtype=object)).fillna("").astype(str)
+        content_width = max((len(value) for value in values), default=0)
+        return min(ADVISOR_MAX_WIDTH_CH, max(8, header_width, content_width))
+    formatted = rows.get(column, pd.Series(dtype=object)).map(lambda value: _format_cell(column, value))
+    return max(5, header_width, max((len(value) for value in formatted), default=0)) + 2
+
+
+def _table_colgroup(rows: pd.DataFrame, columns: list[str], labels: dict[str, str]) -> str:
+    definitions = [
+        ("Sucursal", "Sucursal", "wally-col-branch"),
+        ("Asesor", "Asesor", "wally-col-advisor"),
+        *[(column, labels[column], f"wally-col-{column.lower()}") for column in columns],
+    ]
+    html = ["<colgroup>"]
+    for column, label, css_class in definitions:
+        width = _column_width_chars(rows, column, label)
+        html.append(
+            f"<col class='{css_class}' style='width:{width}ch;min-width:{width}ch;max-width:{width}ch'>"
+        )
+    html.append("</colgroup>")
+    return "".join(html)
+
+
+def _render_period_table(block: pd.DataFrame, title: str, start_date: date, end_date: date, columns: list[str], accumulated: bool = False) -> str:
+    rows = _with_subtotals(block)
+    if rows.empty:
+        return "<div class='wally-advisors-wrap'><p style='padding:12px'>No hay datos para la fecha del sistema.</p></div>"
+
+    labels = _column_labels()
+    period_label = start_date.strftime("%d/%m/%Y") if start_date == end_date else f"{start_date.strftime('%d/%m/%Y')} al {end_date.strftime('%d/%m/%Y')}"
+    period_class = "wally-period wally-period-accumulated" if accumulated else "wally-period"
+    html = ["<div class='wally-advisors-wrap'><table class='wally-advisors'>"]
+    html.append(_table_colgroup(rows, columns, labels))
+    html.append("<thead>")
+    html.append(
+        "<tr><th rowspan='3'>Sucursal</th><th rowspan='3'>Asesor</th>"
+        f"<th class='{period_class}' colspan='{len(columns)}'>{escape(title)} - {period_label}</th></tr>"
+    )
+    html.append(
+        "<tr>"
+        "<th class='wally-section' colspan='3'>Ventas</th>"
+        "<th class='wally-section' colspan='3'>KPIS</th>"
+        "<th class='wally-section'>Margen</th>"
+        "<th class='wally-section' colspan='2'>Presupuesto</th>"
+        "<th class='wally-section' colspan='2'>Cumplimiento</th>"
+        + ("<th class='wally-section'>Pendiente</th>" if "Pendiente" in columns else "")
+        + "</tr>"
+    )
+    html.append("<tr>")
+    for column in columns:
+        html.append(f"<th>{_header_html(labels[column])}</th>")
+    html.append("</tr></thead><tbody>")
+
+    previous_branch = None
+    alt = False
+    for _, row in rows.iterrows():
+        branch = str(row["Sucursal"])
+        advisor = str(row["Asesor"])
+        is_subtotal = bool(row["EsSubtotal"])
+        row_class = "wally-subtotal" if is_subtotal else ("wally-alt" if alt else "")
+        branch_label = branch if previous_branch != branch or is_subtotal else ""
+        html.append(f"<tr class='{row_class}'>")
+        html.append(f"<td class='wally-branch'>{escape(branch_label)}</td><td class='wally-advisor'>{escape(advisor)}</td>")
+        for column in columns:
+            if column == "Pendiente":
+                html.append(_pending_cell(rows, branch, advisor, is_subtotal))
+            else:
+                html.append(f"<td>{escape(_cell(rows, branch, advisor, is_subtotal, column))}</td>")
+        html.append("</tr>")
+        previous_branch = branch
+        if not is_subtotal:
+            alt = not alt
+    html.append("</tbody></table></div>")
+    return "".join(html)
+
+
 def _render_report_table(daily: pd.DataFrame, accumulated: pd.DataFrame, start_date: date, end_date: date) -> str:
     daily_rows = _with_subtotals(daily)
     accumulated_rows = _with_subtotals(accumulated)
@@ -348,7 +487,7 @@ def _render_report_table(daily: pd.DataFrame, accumulated: pd.DataFrame, start_d
 
     labels = {
         "Unidades": "Unidades",
-        "VentaQ": "VentaQ",
+        "VentaQ": "Venta Neta Q",
         "Facturas": "Facturas",
         "TicketPromedio": "Ticket Promedio",
         "UPT": "UPT",
@@ -401,37 +540,39 @@ def _render_report_table(daily: pd.DataFrame, accumulated: pd.DataFrame, start_d
     return "".join(html)
 
 
-def _export_frame(block: pd.DataFrame, label: str) -> pd.DataFrame:
+def _export_frame(block: pd.DataFrame, label: str, include_pending: bool = False) -> pd.DataFrame:
     data = _with_subtotals(block)
     if data.empty:
         return data
     data = data.copy()
     data.insert(0, "Periodo", label)
-    return data[
-        [
-            "Periodo",
-            "Sucursal",
-            "Asesor",
-            "Unidades",
-            "VentaQ",
-            "Facturas",
-            "TicketPromedio",
-            "UPT",
-            "VrUnidadPromedio",
-            "PorcMargen",
-            "PptoUnidades",
-            "PptoVenta",
-            "CumplimientoUnidades",
-            "CumplimientoVenta",
-        ]
+    columns = [
+        "Periodo",
+        "Sucursal",
+        "Asesor",
+        "Unidades",
+        "VentaQ",
+        "Facturas",
+        "TicketPromedio",
+        "UPT",
+        "VrUnidadPromedio",
+        "PorcMargen",
+        "PptoUnidades",
+        "PptoVenta",
+        "CumplimientoUnidades",
+        "CumplimientoVenta",
     ]
+    if include_pending:
+        columns.append("Pendiente")
+    return data[columns]
 
 
 def render() -> None:
     _report_css()
     page_title("Asesores", "Reporte diario y acumulado por sucursal y asesor")
     code_footer(*get_code("asesores", "report"))
-    start_date, end_date = _date_filters()
+    end_date = date.today()
+    start_date = end_date
     month_start = _month_start(end_date)
     try:
         sucursales = optional_multiselect("Sucursal", db.distinct_values(db.VIEW_VENTAS, "Sucursal"))
@@ -454,13 +595,13 @@ def render() -> None:
     total_accumulated = accumulated.sum(numeric_only=True)
     cols = st.columns(6)
     with cols[0]:
-        metric_card("Venta Rango", money(total_daily.get("VentaQ", 0)))
+        metric_card("Venta Neta Diario", money(total_daily.get("VentaQ", 0)))
     with cols[1]:
-        metric_card("Unidades Rango", number(total_daily.get("Unidades", 0), 0))
+        metric_card("Unidades Diario", number(total_daily.get("Unidades", 0), 0))
     with cols[2]:
-        metric_card("Facturas Rango", number(total_daily.get("Facturas", 0), 0))
+        metric_card("Facturas Diario", number(total_daily.get("Facturas", 0), 0))
     with cols[3]:
-        metric_card("Venta Acum.", money(total_accumulated.get("VentaQ", 0)))
+        metric_card("Venta Neta Acum.", money(total_accumulated.get("VentaQ", 0)))
     with cols[4]:
         metric_card("Unidades Acum.", number(total_accumulated.get("Unidades", 0), 0))
     with cols[5]:
@@ -470,11 +611,13 @@ def render() -> None:
     section_title("Reporte de Asesores")
     if float(total_accumulated.get("PptoVenta", 0) or 0) == 0 and float(total_accumulated.get("PptoUnidades", 0) or 0) == 0:
         st.info("No hay presupuesto por asesor cargado para el periodo acumulado seleccionado.")
-    st.markdown(_render_report_table(daily, accumulated, start_date, end_date), unsafe_allow_html=True)
+    st.markdown(_render_period_table(daily, "Diario", start_date, end_date, REPORT_COLUMNS), unsafe_allow_html=True)
+    st.markdown("<div style='height: 18px'></div>", unsafe_allow_html=True)
+    st.markdown(_render_period_table(accumulated, "Acumulado", month_start, end_date, ACCUMULATED_COLUMNS, accumulated=True), unsafe_allow_html=True)
     code_footer(*get_code("asesores", "detail_table"))
 
     export_daily = _export_frame(daily, "Diario")
-    export_accumulated = _export_frame(accumulated, "Acumulado")
+    export_accumulated = _export_frame(accumulated, "Acumulado", include_pending=True)
     st.download_button(
         "Exportar asesores a Excel",
         dataframe_to_excel_bytes({"Diario": export_daily, "Acumulado": export_accumulated}),

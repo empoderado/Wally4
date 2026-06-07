@@ -37,6 +37,9 @@ DEFAULT_SEMANTIC_TERMS = [
 
 
 def connect() -> sqlite3.Connection:
+    from services.env import load_app_env
+
+    load_app_env()
     ensure_dirs()
     path = sqlite_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,6 +106,23 @@ def init_store() -> None:
                 status TEXT NOT NULL DEFAULT 'Pendiente',
                 requires_approval INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS maria_conversation_context (
+                user_id TEXT PRIMARY KEY,
+                domain TEXT NOT NULL,
+                intent TEXT NOT NULL,
+                title TEXT,
+                answer_text TEXT,
+                result_json TEXT NOT NULL DEFAULT '[]',
+                date_start TEXT,
+                date_end TEXT,
+                date_label TEXT,
+                branch TEXT,
+                reference TEXT,
+                focus_entity TEXT,
+                focus_label TEXT,
                 updated_at TEXT NOT NULL
             );
             """
@@ -257,6 +277,12 @@ def init_store() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 sucursal TEXT NOT NULL UNIQUE,
                 prioridad INTEGER NOT NULL DEFAULT 0,
+                actualizado_en TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS app_sucursal_config (
+                sucursal TEXT PRIMARY KEY,
+                activa INTEGER NOT NULL DEFAULT 1,
                 actualizado_en TEXT NOT NULL
             );
 

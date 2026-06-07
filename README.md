@@ -70,6 +70,7 @@ cd C:\Apps\WallyAgent
 ```
 
 El bot usa el mismo orquestador de Mar-IA Agent, por eso respeta memoria, entrenamiento semantico y SQL seguro.
+Tambien acepta notas de voz y archivos de audio. La transcripcion usa el proveedor configurado en `Configuracion > Mar-IA > Transcripcion de audio`.
 
 ## Scripts para servidor
 

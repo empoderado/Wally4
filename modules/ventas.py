@@ -60,7 +60,7 @@ def render() -> None:
                 SUM(ISNULL(DescuentoValor, 0)) AS DescuentoQ,
                 SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
             FROM {db.VIEW_VENTAS}
-            WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+            WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
               AND {where_extra}
             GROUP BY Sucursal, Vendedor, Linea, DescripTipoPrenda, Referencia
             ORDER BY VentaNetaQ DESC

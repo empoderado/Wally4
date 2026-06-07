@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from services import db
+from services.branches import filter_frame
 from services.catalog import get_code
 from services.exports import dataframe_to_excel_bytes, export_filename
 from services.local_store import connect, get_param, read_table
@@ -185,7 +186,7 @@ def render() -> None:
     code_footer(*get_code("crm", "candidates_table"))
 
     section_title("Asignaciones locales")
-    assignments = read_table("crm_asignaciones")
+    assignments = filter_frame(read_table("crm_asignaciones"), ["sucursal_preferida"])
     display_table(assignments.sort_values("id", ascending=False).head(300), height=330, show_total=False)
     code_footer(*get_code("crm", "assignments_table"))
 

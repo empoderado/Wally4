@@ -52,8 +52,38 @@ CUSTOM_CSS = """
 [data-testid="stSidebar"] {
     background: linear-gradient(180deg, var(--wally-charcoal) 0%, var(--wally-charcoal-2) 100%);
     border-right: 1px solid rgba(255,255,255,.08);
-    min-width: 230px !important;
-    max-width: 258px !important;
+    min-width: 300px !important;
+    max-width: 320px !important;
+}
+[data-testid="stSidebarContent"],
+[data-testid="stSidebar"] > div:first-child {
+    height: 100vh;
+    overflow-y: scroll !important;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+    scrollbar-width: auto;
+    scrollbar-color: rgba(255,255,255,.55) rgba(255,255,255,.10);
+}
+[data-testid="stSidebarContent"]::-webkit-scrollbar,
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar {
+    width: 12px;
+}
+[data-testid="stSidebarContent"]::-webkit-scrollbar-track,
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-track {
+    background: rgba(255,255,255,.10);
+}
+[data-testid="stSidebarContent"]::-webkit-scrollbar-thumb,
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,.55);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+}
+[data-testid="stSidebarContent"]::-webkit-scrollbar-thumb:hover,
+[data-testid="stSidebar"] > div:first-child::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,.75);
+    border: 3px solid transparent;
+    background-clip: padding-box;
 }
 [data-testid="stSidebar"][aria-expanded="false"] {
     min-width: 0 !important;
@@ -343,7 +373,7 @@ PAGE_VIEWS = {
     "Traslados": "dbo.VwExistencia | SQLite local: traslado_prioridad_sucursal",
     "Auditoria": "dbo.vw_AuditoriaCambioVendedor",
     "Presupuesto": "SQLite local: pto_sucursal | pto_vendedor | dbo.VwFacturaConImpuesto",
-    "Reportes": "dbo.VwFacturaConImpuesto | dbo.VwExistencia | dbo.VwEntradasInventario | dbo.VwClienteResumenCRM",
+    "Reportes": "dbo.VwFacturaConImpuesto | dbo.VwExistencia | dbo.VwEntradasInventario | SQLite local: pto_linea_sucursal",
     "Mar-IA Agent": "Vistas oficiales de Wally | SQLite local de memoria",
     "Entrenamiento": "SQLite local: semantic_dictionary | training_entries",
     "Configuracion": "SQLite local | .env | vistas oficiales",

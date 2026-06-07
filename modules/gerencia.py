@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -7,6 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 from services import db
+from services.branches import filter_frame
 from services.catalog import get_code
 from services.charts import WALLY_COLORS, apply_chart_theme
 from services.exports import dataframe_to_excel_bytes, export_filename
@@ -400,8 +402,8 @@ def _load_recent_shipment_summary() -> pd.DataFrame:
             LEFT JOIN {db.VIEW_VENTAS} v
                 ON CAST(v.CodEmbarqueAbreviado AS varchar(100)) COLLATE DATABASE_DEFAULT = p.Embarque
                AND v.Trn = 'FV'
-               AND CAST(v.Fecha AS date) >= p.FechaPrimeraEntrada
-               AND CAST(v.Fecha AS date) <= CAST(GETDATE() AS date)
+               AND v.Fecha >= p.FechaPrimeraEntrada
+               AND v.Fecha < DATEADD(day, 1, CAST(GETDATE() AS date))
             GROUP BY p.Embarque
         )
         SELECT
@@ -466,37 +468,38 @@ def _line_group_mapping(start_date: date, end_date: date) -> dict[str, str]:
     sales_expr = _line_group_expr(db.VIEW_VENTAS)
     frames = []
     try:
-        frames.append(
-            db.read_sql(
-                f"""
-                SELECT DISTINCT
-                    UPPER(LTRIM(RTRIM(CAST(Linea AS varchar(250))))) AS LineaOriginal,
-                    {sales_expr} AS LineaAgrupada
-                FROM {db.VIEW_VENTAS}
-                WHERE CAST(Fecha AS date) BETWEEN ? AND ?
-                  AND Linea IS NOT NULL
-                  AND LTRIM(RTRIM(CAST(Linea AS varchar(250)))) <> ''
-                """,
-                db.date_params(start_date, end_date),
-            )
+        range_mapping = db.read_sql(
+            f"""
+            SELECT DISTINCT
+                UPPER(LTRIM(RTRIM(CAST(Linea AS varchar(250))))) AS LineaOriginal,
+                {sales_expr} AS LineaAgrupada
+            FROM {db.VIEW_VENTAS}
+            WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
+              AND Linea IS NOT NULL
+              AND LTRIM(RTRIM(CAST(Linea AS varchar(250)))) <> ''
+            """,
+            db.date_params(start_date, end_date),
         )
+        if not range_mapping.empty:
+            frames.append(range_mapping)
     except Exception:
         pass
-    try:
-        frames.append(
-            db.read_sql(
-                f"""
-                SELECT DISTINCT
-                    UPPER(LTRIM(RTRIM(CAST(Linea AS varchar(250))))) AS LineaOriginal,
-                    {sales_expr} AS LineaAgrupada
-                FROM {db.VIEW_VENTAS}
-                WHERE Linea IS NOT NULL
-                  AND LTRIM(RTRIM(CAST(Linea AS varchar(250)))) <> ''
-                """
+    if not frames:
+        try:
+            frames.append(
+                db.read_sql(
+                    f"""
+                    SELECT DISTINCT
+                        UPPER(LTRIM(RTRIM(CAST(Linea AS varchar(250))))) AS LineaOriginal,
+                        {sales_expr} AS LineaAgrupada
+                    FROM {db.VIEW_VENTAS}
+                    WHERE Linea IS NOT NULL
+                      AND LTRIM(RTRIM(CAST(Linea AS varchar(250)))) <> ''
+                    """
+                )
             )
-        )
-    except Exception:
-        pass
+        except Exception:
+            pass
     if not frames:
         return {}
     mapping = pd.concat(frames, ignore_index=True)
@@ -508,23 +511,44 @@ def _line_group_mapping(start_date: date, end_date: date) -> dict[str, str]:
     return dict(mapping.drop_duplicates("LineaOriginal")[["LineaOriginal", "LineaAgrupada"]].values)
 
 
+def _normalize_budget_line(value: object, group_map: dict[str, str]) -> str:
+    line = str(value or "").strip().upper()
+    if not line:
+        return ""
+    if line in group_map:
+        return group_map[line]
+
+    coded_line = re.match(r"^[A-Z0-9]+\s+-\s+(.+)$", line)
+    if coded_line:
+        line = coded_line.group(1).strip()
+    return group_map.get(line, line)
+
+
 def _read_line_branch_budget(start_date: date, end_date: date) -> pd.DataFrame:
     if start_date > end_date:
         start_date, end_date = end_date, start_date
     conn = connect()
     try:
-        return pd.read_sql_query(
+        data = pd.read_sql_query(
             """
             SELECT
                 UPPER(TRIM(linea)) AS Linea,
+                sucursal AS Sucursal,
                 SUM(unidades) AS PresupuestoUnidades,
                 SUM(venta_q) AS PresupuestoVenta
             FROM pto_linea_sucursal
             WHERE fecha BETWEEN ? AND ?
-            GROUP BY UPPER(TRIM(linea))
+            GROUP BY UPPER(TRIM(linea)), sucursal
             """,
             conn,
             params=(start_date.isoformat(), end_date.isoformat()),
+        )
+        data = filter_frame(data, ["Sucursal"])
+        if data.empty:
+            return pd.DataFrame(columns=["Linea", "PresupuestoUnidades", "PresupuestoVenta"])
+        return data.groupby("Linea", as_index=False).agg(
+            PresupuestoUnidades=("PresupuestoUnidades", "sum"),
+            PresupuestoVenta=("PresupuestoVenta", "sum"),
         )
     finally:
         conn.close()
@@ -554,7 +578,7 @@ def _load_line_performance(start_date: date, end_date: date) -> pd.DataFrame:
                 END
             ) AS VentaQ
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
           AND Trn IN ('FV', 'NC', 'NCC')
           AND {sales_line_expr} <> ''
         GROUP BY {sales_line_expr}
@@ -584,13 +608,7 @@ def _load_line_performance(start_date: date, end_date: date) -> pd.DataFrame:
         )
         stock = stock.groupby("Linea", as_index=False).agg(StockUnidades=("StockUnidades", "sum"))
     if not budget.empty:
-        budget["Linea"] = (
-            budget["Linea"]
-            .astype(str)
-            .str.strip()
-            .str.upper()
-            .map(lambda value: group_map.get(value, value))
-        )
+        budget["Linea"] = budget["Linea"].map(lambda value: _normalize_budget_line(value, group_map))
 
     for frame, defaults in [
         (sales, {"Linea": "", "VentasUnidades": 0, "VentaQ": 0}),
@@ -648,9 +666,9 @@ def _load_gerencia(selected_date: date, daily_start: date, daily_end: date) -> t
             SUM(CostoTotal) AS CostoTotal,
             SUM(ISNULL(VentaNetaQ, 0)) - SUM(CostoTotal) AS MargenQ
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) = ?
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
         """,
-        (target_dates[0],),
+        (target_dates[0], target_dates[0]),
     )
     comparison = db.read_sql(
         f"""

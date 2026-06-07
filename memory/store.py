@@ -113,6 +113,16 @@ def memory_snapshot(user_id: str | None = None) -> MemorySnapshot:
     )
 
 
+def memory_summary(user_id: str | None = None) -> str:
+    memories = active_memories(user_id=user_id)
+    if memories.empty:
+        return ""
+    lines = []
+    for _, row in memories.head(20).iterrows():
+        lines.append(f"{row['key_text']}: {row['value_text']} ({row['memory_type']})")
+    return "\n".join(lines)
+
+
 def remember(
     *,
     memory_type: str,

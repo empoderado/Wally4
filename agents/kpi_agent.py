@@ -15,7 +15,12 @@ class KpiResult:
     answer: str
 
 
-def sales_summary(start_date, end_date, label: str) -> KpiResult:
+def sales_summary(start_date, end_date, label: str, branch: str | None = None) -> KpiResult:
+    filters = ["Fecha >= ? AND Fecha < DATEADD(day, 1, ?)", "Trn = 'FV'"]
+    params: list = [start_date, end_date]
+    if branch:
+        filters.append("Sucursal = ?")
+        params.append(branch)
     query = f"""
         SELECT
             SUM(ISNULL(VentaNetaQ, 0)) AS VentaNetaQ,
@@ -26,10 +31,9 @@ def sales_summary(start_date, end_date, label: str) -> KpiResult:
             SUM(ISNULL(CostoTotal, 0)) AS CostoTotal,
             SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
-          AND Trn = 'FV'
+        WHERE {" AND ".join(filters)}
     """
-    df = db.read_sql(query, (start_date, end_date))
+    df = db.read_sql(query, params)
     row = _first_row(df)
     venta = _value(row, "VentaNetaQ")
     unidades = _value(row, "Unidades")
@@ -40,7 +44,7 @@ def sales_summary(start_date, end_date, label: str) -> KpiResult:
     vr_unidad = venta / unidades if unidades else 0
     margen_pct = margen / venta if venta else 0
     answer = (
-        f"**Ventas {label} [{start_date}; {end_date}]**\n\n"
+        f"**Ventas{' de ' + branch if branch else ''} {label} [{start_date}; {end_date}]**\n\n"
         f"1. **Venta Neta Q:** {money(venta)}\n\n"
         f"2. **Unidades:** {number(unidades)}\n\n"
         f"3. **Facturas:** {number(facturas)}\n\n"
@@ -52,7 +56,29 @@ def sales_summary(start_date, end_date, label: str) -> KpiResult:
     return KpiResult(df, answer)
 
 
-def sales_by_branch(start_date, end_date, label: str, limit: int = 10) -> KpiResult:
+def sales_by_branch(
+    start_date,
+    end_date,
+    label: str,
+    limit: int = 10,
+    product_filters: list[tuple[str, str]] | None = None,
+    product_label: str | None = None,
+    order_by: str = "sales",
+) -> KpiResult:
+    filters = ["Fecha >= ? AND Fecha < DATEADD(day, 1, ?)", "Trn = 'FV'"]
+    params: list = [start_date, end_date]
+    if product_filters:
+        allowed_columns = {"Linea", "DescripTipoPrenda", "Descripcion3Tabla4"}
+        product_clauses = []
+        for column, pattern in product_filters:
+            if column not in allowed_columns:
+                continue
+            product_clauses.append(
+                f"UPPER(LTRIM(RTRIM(CAST({column} AS varchar(250))))) LIKE ?"
+            )
+            params.append(pattern.strip().upper())
+        if product_clauses:
+            filters.append("(" + " OR ".join(product_clauses) + ")")
     query = f"""
         SELECT
             Sucursal,
@@ -62,20 +88,23 @@ def sales_by_branch(start_date, end_date, label: str, limit: int = 10) -> KpiRes
             SUM(ISNULL(CostoTotal, 0)) AS CostoTotal,
             SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
-          AND Trn = 'FV'
+        WHERE {" AND ".join(filters)}
         GROUP BY Sucursal
-        ORDER BY VentaNetaQ DESC
     """
-    df = db.read_sql(query, (start_date, end_date))
+    df = db.read_sql(query, params)
     if df.empty:
-        return KpiResult(df, f"No encontre ventas por sucursal para {label} [{start_date}; {end_date}].")
-    lines = [f"**Ventas por sucursal {label} [{start_date}; {end_date}]**"]
+        product = f" de {product_label}" if product_label else ""
+        return KpiResult(df, f"No encontre ventas{product} por sucursal para {label} [{start_date}; {end_date}].")
+    sort_column = "Unidades" if order_by == "units" else "VentaNetaQ"
+    df = df.sort_values([sort_column, "VentaNetaQ", "Sucursal"], ascending=[False, False, True]).reset_index(drop=True)
+    product = f" de {product_label}" if product_label else ""
+    title = "Unidades vendidas" if order_by == "units" else "Ventas"
+    lines = [f"**{title}{product} por sucursal {label} [{start_date}; {end_date}]**"]
     total_venta = df["VentaNetaQ"].sum()
     total_unidades = df["Unidades"].sum()
     total_facturas = df["Facturas"].sum()
     total_margen = df["MargenQ"].sum()
-    for idx, row in df.head(limit).iterrows():
+    for position, (_, row) in enumerate(df.head(limit).iterrows(), start=1):
         venta = _value(row, "VentaNetaQ")
         unidades = _value(row, "Unidades")
         facturas = _value(row, "Facturas")
@@ -85,7 +114,7 @@ def sales_by_branch(start_date, end_date, label: str, limit: int = 10) -> KpiRes
         vr_unidad = venta / unidades if unidades else 0
         lines.append(
             "\n"
-            f"{idx + 1}. **{row['Sucursal']}**\n"
+            f"{position}. **{row['Sucursal']}**\n"
             f"   Venta: {money(venta)} | Unid: {number(unidades)} | Fact: {number(facturas)} | "
             f"Ticket: {money(ticket)} | UPT: {number(upt, 2)} | Vr Unid: {money(vr_unidad)} | "
             f"Margen: {money(margen)}"
@@ -117,15 +146,88 @@ def inventory_by_branch(limit: int = 10) -> KpiResult:
     return KpiResult(df, "\n".join(lines))
 
 
-def sales_by_seller(start_date, end_date, label: str, limit: int = 10) -> KpiResult:
-    return _sales_grouped(
-        start_date,
-        end_date,
-        label,
-        dimension="Vendedor",
-        title="Ventas por vendedor",
-        limit=limit,
-    )
+def sales_by_seller(
+    start_date,
+    end_date,
+    label: str,
+    limit: int = 10,
+    ascending: bool = False,
+    branch: str | None = None,
+    product_filters: list[tuple[str, str]] | None = None,
+    product_label: str | None = None,
+    order_by: str = "sales",
+) -> KpiResult:
+    filters = [
+        "Fecha >= ? AND Fecha < DATEADD(day, 1, ?)",
+        "Trn = 'FV'",
+        "Vendedor IS NOT NULL",
+        "LTRIM(RTRIM(CAST(Vendedor AS varchar(250)))) <> ''",
+        "UPPER(LTRIM(RTRIM(CAST(Vendedor AS varchar(250))))) NOT LIKE 'CAJA %'",
+        "UPPER(LTRIM(RTRIM(CAST(Vendedor AS varchar(250))))) NOT IN ('NO ASIGNADO', 'NO ASIGNADO NO ASIGNADO')",
+    ]
+    params: list = [start_date, end_date]
+    if branch:
+        filters.append("Sucursal = ?")
+        params.append(branch)
+    if product_filters:
+        allowed_columns = {"Linea", "DescripTipoPrenda", "Descripcion3Tabla4"}
+        product_clauses = []
+        for column, pattern in product_filters:
+            if column not in allowed_columns:
+                continue
+            product_clauses.append(
+                f"UPPER(LTRIM(RTRIM(CAST({column} AS varchar(250))))) LIKE ?"
+            )
+            params.append(pattern.strip().upper())
+        if product_clauses:
+            filters.append("(" + " OR ".join(product_clauses) + ")")
+    query = f"""
+        SELECT
+            Sucursal,
+            Vendedor,
+            SUM(ISNULL(VentaNetaQ, 0)) AS VentaNetaQ,
+            SUM(ISNULL(Unidades, 0)) AS Unidades,
+            COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
+            SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
+        FROM {db.VIEW_VENTAS}
+        WHERE {" AND ".join(filters)}
+        GROUP BY Sucursal, Vendedor
+    """
+    df = db.read_sql(query, params)
+    if df.empty:
+        target = f" en {branch}" if branch else ""
+        return KpiResult(df, f"No encontre ventas por asesora{target} para {label} [{start_date}; {end_date}].")
+
+    primary_column = "Unidades" if order_by == "units" else "VentaNetaQ"
+    secondary_column = "VentaNetaQ" if order_by == "units" else "Unidades"
+    df = df.sort_values(
+        [primary_column, secondary_column, "Facturas", "Vendedor"],
+        ascending=[ascending, ascending, ascending, True],
+    ).reset_index(drop=True)
+    direction = "menor" if ascending else "mayor"
+    metric_label = "cantidad de unidades" if order_by == "units" else "venta neta"
+    title = f"Asesoras con {direction} {metric_label}"
+    target = f" en {branch}" if branch else ""
+    product = f" de {product_label}" if product_label else ""
+    lines = [
+        f"**{title}{product}{target} {label} [{start_date}; {end_date}]**",
+        f"\nCriterio: ordenadas por {direction} {metric_label}{product}.",
+    ]
+    for position, (_, row) in enumerate(df.head(limit).iterrows(), start=1):
+        venta = _value(row, "VentaNetaQ")
+        unidades = _value(row, "Unidades")
+        facturas = _value(row, "Facturas")
+        margen = _value(row, "MargenQ")
+        ticket = venta / facturas if facturas else 0
+        upt = unidades / facturas if facturas else 0
+        margen_pct = margen / venta if venta else 0
+        lines.append(
+            f"\n{position}. **{row['Vendedor']}** | {row['Sucursal']}\n"
+            f"   Venta {money(venta)} | Unid {number(unidades)} | Fact {number(facturas)} | "
+            f"Ticket {money(ticket)} | UPT {number(upt, 2)} | "
+            f"Margen {money(margen)} ({percent(margen_pct)})"
+        )
+    return KpiResult(df, "\n".join(lines))
 
 
 def sales_by_shipment(start_date, end_date, label: str, limit: int = 10) -> KpiResult:
@@ -162,7 +264,7 @@ def best_customer(start_date, end_date, label: str, limit: int = 10, order_by: s
             COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
             MAX(CAST(Fecha AS date)) AS UltimaCompra
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
           AND Trn = 'FV'
           AND Cuenta IS NOT NULL
           AND Cliente IS NOT NULL
@@ -305,7 +407,7 @@ def _sales_grouped(start_date, end_date, label: str, dimension: str, title: str,
             COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
             SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
-        WHERE CAST(Fecha AS date) BETWEEN ? AND ?
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
           AND Trn = 'FV'
         GROUP BY {dimension}
         ORDER BY VentaNetaQ DESC
