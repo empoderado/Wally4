@@ -17,7 +17,7 @@ def kpis_sucursal(df: pd.DataFrame) -> pd.DataFrame:
     data["Upt"] = data["Unidades"] / data["Facturas"].replace({0: pd.NA})
     data["FactProm"] = data["VentaNetaQ"] / data["Facturas"].replace({0: pd.NA})
     data["VrPromedioUnidad"] = data["VentaNetaQ"] / data["Unidades"].replace({0: pd.NA})
-    data["%Margen"] = data["MargenQ"] / data["VentaNetaQ"].replace({0: pd.NA})
+    data["%Margen"] = data["MargenQ"] / (data["VentaNetaQ"] / 1.12).replace({0: pd.NA})
     data["%Desc"] = data["DescuentoQ"] / data["VentaBruta"].replace({0: pd.NA})
     data["%VentaSuc"] = data["VentaNetaQ"] / total_venta if total_venta else 0
     data["Semáforo"] = data["%Margen"].map(_semaforo_margen)

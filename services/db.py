@@ -25,7 +25,8 @@ VIEW_EXISTENCIA = "dbo.VwExistencia"
 VIEW_ENTRADAS = "dbo.VwEntradasInventario"
 VIEW_CRM = "dbo.VwClienteResumenCRM"
 VIEW_AUDITORIA_CAMBIO_VENDEDOR = "dbo.vw_AuditoriaCambioVendedor"
-AUTHORIZED_VIEWS = {VIEW_VENTAS, VIEW_EXISTENCIA, VIEW_ENTRADAS, VIEW_CRM, VIEW_AUDITORIA_CAMBIO_VENDEDOR}
+VIEW_COLABORADORES_TURNO = "dbo.VwColaboradoresTurno"
+AUTHORIZED_VIEWS = {VIEW_VENTAS, VIEW_EXISTENCIA, VIEW_ENTRADAS, VIEW_CRM, VIEW_AUDITORIA_CAMBIO_VENDEDOR, VIEW_COLABORADORES_TURNO}
 VIEW_BRANCH_COLUMNS = {
     VIEW_VENTAS: "Sucursal",
     VIEW_EXISTENCIA: "Sucursal",
@@ -34,7 +35,7 @@ VIEW_BRANCH_COLUMNS = {
     VIEW_AUDITORIA_CAMBIO_VENDEDOR: "Sucursal",
 }
 REQUIRED_SQL_DATABASE = "WallyBD"
-QUERY_CACHE_TTL_SECONDS = 60
+QUERY_CACHE_TTL_SECONDS = 600
 QUERY_CACHE_MAX_ENTRIES = 64
 _QUERY_CACHE: OrderedDict[tuple[str, tuple], tuple[float, pd.DataFrame]] = OrderedDict()
 _QUERY_CACHE_LOCK = RLock()
@@ -185,6 +186,29 @@ def clear_query_cache() -> None:
         _QUERY_CACHE.clear()
 
 
+def save_colaborador_turno(id_empleado: int, turno: str) -> None:
+    if use_mock_data():
+        return
+    query = """
+        MERGE dbo.ColaboradorTurno AS target
+        USING (SELECT ? AS idEmpleado, ? AS Turno) AS source
+        ON (target.idEmpleado = source.idEmpleado)
+        WHEN MATCHED THEN
+            UPDATE SET target.Turno = source.Turno, target.FechaActualizado = GETDATE()
+        WHEN NOT MATCHED THEN
+            INSERT (idEmpleado, Turno, FechaActualizado)
+            VALUES (source.idEmpleado, source.Turno, GETDATE());
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(query, (id_empleado, turno))
+        conn.commit()
+    finally:
+        conn.close()
+    clear_query_cache()
+
+
 def is_safe_select(query: str) -> bool:
     normalized = " ".join(query.strip().lower().split())
     forbidden = [" insert ", " update ", " delete ", " drop ", " alter ", " exec ", " execute ", " merge ", " truncate "]
@@ -206,7 +230,8 @@ def uses_only_authorized_views(normalized_query: str) -> bool:
         for view in AUTHORIZED_VIEWS
         if view.lower() in normalized_query
     }
-    if not referenced_views:
+    allowed_extra = {"studiof.dbo.promocion", "studiof.dbo.promocionarticuloaplica"}
+    if not referenced_views and not any(tbl in normalized_query for tbl in allowed_extra):
         return False
 
     cte_names = extract_cte_names(normalized_query)
@@ -216,6 +241,8 @@ def uses_only_authorized_views(normalized_query: str) -> bool:
     for source in source_objects:
         normalized_source = normalize_sql_identifier(source)
         if normalized_source in cte_names:
+            continue
+        if normalized_source in allowed_extra:
             continue
         if normalized_source not in referenced_views:
             return False
@@ -230,9 +257,10 @@ def is_allowed_system_query(normalized_query: str) -> bool:
 
 
 def references_blocked_database_or_object(normalized_query: str) -> bool:
-    if "studiof." in normalized_query:
+    clean_q = normalized_query.replace("studiof.dbo.promocionarticuloaplica", "").replace("studiof.dbo.promocion", "")
+    if "studiof." in clean_q:
         return True
-    if re.search(r"\b[a-z_][\w]*\.[a-z_][\w]*\.[a-z_][\w]*\b", normalized_query):
+    if re.search(r"\b[a-z_][\w]*\.[a-z_][\w]*\.[a-z_][\w]*\b", clean_q):
         return True
     return False
 
@@ -624,6 +652,44 @@ def mock_read_sql(query: str, params: tuple | list | None = None) -> pd.DataFram
                 {"Sucursal": "PRADERA", "Existencia": 2104},
             ]
         )
+    if "from dbo.vwcolaboradoresturno" in normalized:
+        return pd.DataFrame(
+            [
+                {
+                    "CODIGO": 7,
+                    "Documento": "2171073770101",
+                    "Fecha Creacion": "2024-01-15 08:30:00",
+                    "Nombre": "Maria Lourdes Hernandez",
+                    "Cargo": "Vendedor",
+                    "Sucursal": "OAKLAND",
+                    "Turno": "Diurno",
+                    "Fecha de alta": "2024-02-01 10:00:00",
+                    "Activo": True,
+                },
+                {
+                    "CODIGO": 15,
+                    "Documento": "3464862540101",
+                    "Fecha Creacion": "2024-01-20 09:15:00",
+                    "Nombre": "Rosana Patricia Tercero Garcia",
+                    "Cargo": "Cajero",
+                    "Sucursal": "PRADERA",
+                    "Turno": "Mixto",
+                    "Fecha de alta": "2024-02-05 11:30:00",
+                    "Activo": True,
+                },
+                {
+                    "CODIGO": 19,
+                    "Documento": "3629106500101",
+                    "Fecha Creacion": "2024-01-22 14:00:00",
+                    "Nombre": "ELIZABETH CU RAMIREZ",
+                    "Cargo": "Bodeguero",
+                    "Sucursal": "PORTAL PETAPA",
+                    "Turno": "Nocturno",
+                    "Fecha de alta": None,
+                    "Activo": False,
+                },
+            ]
+        )
     return pd.DataFrame()
 
 
@@ -639,7 +705,7 @@ def _sales_mock_row(dimension: str, value: str, venta: float, unidades: int, fac
         "TicketPromedio": venta / facturas if facturas else 0,
         "UPT": unidades / facturas if facturas else 0,
         "VrUnidadPromedio": venta / unidades if unidades else 0,
-        "PorcMargen": margen / venta if venta else 0,
+        "PorcMargen": margen / (venta / 1.12) if venta else 0,
     }
 
 

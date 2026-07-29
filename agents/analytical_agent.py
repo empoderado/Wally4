@@ -53,11 +53,11 @@ SALES_MEASURES = {
     "Venta": "SUM(ISNULL(VentaNetaQ, 0))",
     "Unidades": "SUM(ISNULL(Unidades, 0))",
     "Facturas": "COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END)",
-    "Margen": "SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0))",
+    "Margen": "SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0))",
     "TicketPromedio": "SUM(ISNULL(VentaNetaQ, 0)) / NULLIF(COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END), 0)",
     "UPT": "CAST(SUM(ISNULL(Unidades, 0)) AS decimal(18, 4)) / NULLIF(COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END), 0)",
     "VrUnidadPromedio": "SUM(ISNULL(VentaNetaQ, 0)) / NULLIF(CAST(SUM(ISNULL(Unidades, 0)) AS decimal(18, 4)), 0)",
-    "PorcMargen": "(SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0))) / NULLIF(CAST(SUM(ISNULL(VentaNetaQ, 0)) AS decimal(18, 4)), 0)",
+    "PorcMargen": "(SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0))) / NULLIF(CAST(SUM(ISNULL(VentaNetaQ, 0)) AS decimal(18, 4)) / 1.12, 0)",
 }
 
 INVENTORY_MEASURES = {
@@ -317,7 +317,7 @@ def _format_total_measure(name: str, df: pd.DataFrame, measures: dict[str, str])
     if name == "PorcMargen":
         margen = df["Margen"].sum() if "Margen" in df.columns else 0
         venta = df["Venta"].sum() if "Venta" in df.columns else 0
-        return _format_measure(name, margen / venta if venta else 0)
+        return _format_measure(name, margen / (venta / 1.12) if venta else 0)
     if name == "TVida":
         return _format_measure(name, df[name].min())
     return _format_measure(name, df[name].sum())

@@ -51,7 +51,9 @@ def date_sidebar() -> tuple[date, date]:
     return start, end
 
 
-def optional_multiselect(label: str, options: list[str]) -> list[str]:
+def optional_multiselect(label: str, options: list[str], format_func=None) -> list[str]:
     if not options:
         return []
+    if format_func is not None:
+        return st.sidebar.multiselect(label, options=options, default=[], format_func=format_func)
     return st.sidebar.multiselect(label, options=options, default=[])

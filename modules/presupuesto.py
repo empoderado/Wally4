@@ -53,10 +53,11 @@ BRANCH_ORDER = [
     "OAKLAND",
     "CHIQUIMULA",
     "PRADERA",
-    "AMERICAS",
+    "LAS AMERICAS",
     "MAJADAS",
     "NARANJO MALL",
     "ESCUINTLA",
+    "VIDERE",
     "ONLINE",
     "BASSHERT",
 ]
@@ -592,8 +593,8 @@ def _format_money_plain(value: float | int | None) -> str:
 
 def _short_branch_name(name: str) -> str:
     cleaned = str(name).strip().upper()
-    if cleaned in {"PARQUE LAS AMERICAS", "PARQUE LAS AMÉRICAS"}:
-        return "AMERICAS"
+    if cleaned in {"PARQUE LAS AMERICAS", "PARQUE LAS AMÉRICAS", "AMERICAS"}:
+        return "LAS AMERICAS"
     if cleaned in {"ON-LINE", "ON LINE"}:
         return "ONLINE"
     return cleaned

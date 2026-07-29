@@ -26,11 +26,13 @@ def render() -> None:
     page_title("Ventas", "Analisis por sucursal, vendedor, linea, tipo de prenda y referencia")
     code_footer(*get_code("ventas", "report"))
     start_date, end_date = date_sidebar()
+    start, end = db.date_params(start_date, end_date)
+    rango_fecha = f"Fecha >= '{start}' AND Fecha < DATEADD(day, 1, '{end}')"
     try:
-        sucursales = optional_multiselect("Sucursal", db.distinct_values(db.VIEW_VENTAS, "Sucursal"))
-        lineas = optional_multiselect("Linea", db.distinct_values(db.VIEW_VENTAS, "Linea"))
-        tipos = optional_multiselect("Tipo prenda", db.distinct_values(db.VIEW_VENTAS, "DescripTipoPrenda"))
-        vendedores = optional_multiselect("Vendedor", db.distinct_values(db.VIEW_VENTAS, "Vendedor"))
+        sucursales = optional_multiselect("Sucursal", db.distinct_values(db.VIEW_VENTAS, "Sucursal", where=rango_fecha))
+        lineas = optional_multiselect("Linea", db.distinct_values(db.VIEW_VENTAS, "Linea", where=rango_fecha))
+        tipos = optional_multiselect("Tipo prenda", db.distinct_values(db.VIEW_VENTAS, "DescripTipoPrenda", where=rango_fecha))
+        vendedores = optional_multiselect("Vendedor", db.distinct_values(db.VIEW_VENTAS, "Vendedor", where=rango_fecha))
     except Exception as exc:
         st.error("No se pudieron cargar filtros de ventas.")
         st.exception(exc)
@@ -43,7 +45,6 @@ def render() -> None:
     top_n = top_n_control(default=15, max_value=50)
 
     where_extra = _where({"Sucursal": sucursales, "Linea": lineas, "DescripTipoPrenda": tipos, "Vendedor": vendedores})
-    start, end = db.date_params(start_date, end_date)
 
     try:
         data = db.read_sql(

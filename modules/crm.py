@@ -155,13 +155,41 @@ def render() -> None:
     )
 
     try:
+        branches = db.distinct_values(db.VIEW_VENTAS, "Sucursal")
+    except Exception:
+        branches = ["MAJADAS"]
+
+    selected_branch = st.sidebar.selectbox(
+        "Sucursal para exportar",
+        branches,
+        index=branches.index("MAJADAS") if "MAJADAS" in branches else 0
+    )
+
+    try:
+        from scripts.generate_majadas_crm_excel import get_branch_crm_dataframe
+        branch_df_filtered = get_branch_crm_dataframe(selected_branch, segmentos=segmentos, sort_asc=True)
+        if not branch_df_filtered.empty:
+            st.sidebar.download_button(
+                f"Exportar Excel {selected_branch}",
+                dataframe_to_excel_bytes({f"CRM {selected_branch}": branch_df_filtered}),
+                file_name=export_filename(f"wally_crm_{selected_branch.lower().replace(' ', '_')}_filtrado"),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_exportar_sucursal_filtrado_sidebar"
+            )
+        else:
+            st.sidebar.button(f"Exportar Excel {selected_branch} (Sin datos)", disabled=True, key="btn_exportar_sucursal_sin_datos_sidebar")
+    except Exception as exc:
+        st.sidebar.button(f"Exportar Excel {selected_branch} (Error)", disabled=True, key="btn_exportar_sucursal_error_sidebar")
+        st.sidebar.caption(f"No se pudieron cargar los datos de {selected_branch}.")
+
+    try:
         candidates = _candidate_query(segmentos, max(100, quota * 20))
     except Exception as exc:
         st.error("No se pudo consultar VwClienteResumenCRM.")
         st.exception(exc)
         return
 
-    cols = st.columns(3)
+    cols = st.columns(4)
     with cols[0]:
         if st.button("Generar sugerencias de hoy", type="primary"):
             inserted = _create_suggestions(candidates, quota)
@@ -177,6 +205,22 @@ def render() -> None:
             file_name=export_filename("wally_crm_candidatos"),
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+    with cols[3]:
+        try:
+            from scripts.generate_majadas_crm_excel import get_branch_crm_dataframe
+            branch_df = get_branch_crm_dataframe(selected_branch)
+            if not branch_df.empty:
+                st.download_button(
+                    f"Exportar {selected_branch}",
+                    dataframe_to_excel_bytes({f"CRM {selected_branch}": branch_df}),
+                    file_name=export_filename(f"wally_crm_{selected_branch.lower().replace(' ', '_')}"),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            else:
+                st.button(f"Exportar {selected_branch} (Sin datos)", disabled=True)
+        except Exception as exc:
+            st.button(f"Exportar {selected_branch} (Error)", disabled=True)
+            st.caption(f"No se pudieron cargar los datos de {selected_branch}.")
 
     section_title("Clientes sugeridos por Wally")
     if candidates.empty:

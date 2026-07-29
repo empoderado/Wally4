@@ -16,7 +16,9 @@ REPORT_CODES = {
         "report": ("R-GER-01", "Kpis gerenciales"),
         "year_table": ("T-GER-01", "Comparativo de ventas por fecha en los ultimos 4 anios"),
         "line_performance": ("T-GER-05", "Analisis de desempeno comercial por linea"),
+        "subline_performance": ("T-GER-07", "Analisis de desempeno comercial por linea y sublinea"),
         "range_year_table": ("T-GER-04", "Comparativo 4 anios rango fecha"),
+        "today_comparison_table": ("T-GER-06", "Comparativo dia actual vs anios anteriores"),
         "year_chart": ("G-GER-01", "Comparativo anual de venta neta y unidades"),
         "hour_table": ("T-GER-02", "Tendencia de facturacion por hora contra historicos"),
         "day_table": ("T-GER-03", "Tendencia de facturacion por dia contra historicos"),
@@ -32,7 +34,8 @@ REPORT_CODES = {
         "line_chart": ("G-EXI-02", "Existencia por linea de producto"),
         "jeans_subline_chart": ("G-EXI-03", "Existencia linea Jeans por sublinea"),
         "detail_table": ("T-EXI-01", "Detalle de existencias"),
-        "shipment_table": ("T-EXI-02", "Rotacion por Embarque (15)"),
+        "shipment_table": ("T-EXI-02", "Rotacion por Embarque (20)"),
+        "rotacion_derivada": ("T-EXI-03", "Rotacion Derivada por Referencia"),
     },
     "entradas": {
         "report": ("R-ENT-01", "Reporte de entradas de inventario"),
@@ -77,6 +80,10 @@ REPORT_CODES = {
         "report": ("R-AUD-01", "Resumen de auditoria de documentos"),
         "detail_table": ("T-AUD-01", "Detalle de alertas de auditoria"),
         "users_table": ("T-AUD-02", "Usuarios con modificaciones"),
+    },
+    "colaboradores": {
+        "report": ("R-COL-01", "Modulo de turnos de colaboradores"),
+        "detail_table": ("T-COL-01", "Detalle de turnos de colaboradores"),
     },
 }
 

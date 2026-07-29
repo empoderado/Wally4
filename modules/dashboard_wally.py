@@ -31,7 +31,7 @@ BRANCH_TABLE_COLUMNS = [
     "DescuentoQ",
     "%Desc",
     "%VentaSuc",
-    "SemÃ¡foro",
+    "Semáforo",
 ]
 
 BRANCH_TABLE_LABELS = {
@@ -48,7 +48,7 @@ BRANCH_TABLE_LABELS = {
     "DescuentoQ": "Descuento Q",
     "%Desc": "% Descuento",
     "%VentaSuc": "% Venta Sucursal",
-    "SemÃ¡foro": "Semaforo",
+    "Semáforo": "Semaforo",
 }
 
 
@@ -63,7 +63,7 @@ def _load_dashboard(start_date, end_date) -> tuple[pd.DataFrame, pd.DataFrame, p
             SUM(ISNULL(VentaBruta, 0)) AS VentaBruta,
             SUM(ISNULL(DescuentoValor, 0)) AS DescuentoQ,
             SUM(ISNULL(CostoTotal, 0)) AS CostoTotal,
-            SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
+            SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
         WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
         """,
@@ -79,7 +79,7 @@ def _load_dashboard(start_date, end_date) -> tuple[pd.DataFrame, pd.DataFrame, p
             ,SUM(ISNULL(VentaBruta, 0)) AS VentaBruta
             ,SUM(ISNULL(DescuentoValor, 0)) AS DescuentoQ
             ,SUM(ISNULL(CostoTotal, 0)) AS CostoTotal
-            ,SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
+            ,SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
         WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
         GROUP BY Sucursal
@@ -240,7 +240,7 @@ def _branch_total_row(data: pd.DataFrame) -> dict[str, object]:
         for _, row in data.iterrows()
         if float(row.get("%Desc", 0) or 0) > 0
     )
-    margen_pct = margen / venta if venta else 0
+    margen_pct = margen / (venta / 1.12) if venta else 0
     if margen_pct >= 0.60:
         semaforo = "Verde"
     elif margen_pct >= 0.55:
@@ -261,7 +261,7 @@ def _branch_total_row(data: pd.DataFrame) -> dict[str, object]:
         "DescuentoQ": descuento,
         "%Desc": descuento / venta_bruta if venta_bruta else 0,
         "%VentaSuc": 1 if venta else 0,
-        "SemÃ¡foro": semaforo,
+        "Semáforo": semaforo,
     }
 
 
@@ -328,7 +328,7 @@ def _render_branch_table(data: pd.DataFrame) -> str:
                 except (TypeError, ValueError):
                     pass
             class_attr = f" class='{' '.join(classes)}'" if classes else ""
-            content = _status_html(value) if column == "SemÃ¡foro" else escape(_branch_cell(column, value))
+            content = _status_html(value) if column == "Semáforo" else escape(_branch_cell(column, value))
             html.append(f"<td{class_attr}>{content}</td>")
         html.append("</tr>")
     html.append("</tbody></table></div>")
@@ -380,7 +380,7 @@ def render() -> None:
     with cols[5]:
         metric_card("Vr Unidad Prom.", money(vr_unidad))
     with cols[6]:
-        metric_card("Margen", money(margen), percent(margen / venta if venta else 0), positive=margen >= 0)
+        metric_card("Margen", money(margen), percent(margen / (venta / 1.12) if venta else 0), positive=margen >= 0)
     code_footer(*get_code("dashboard", "report"))
 
     section_title("Resumen por Sucursal")

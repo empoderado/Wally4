@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from modules import asesores, auditoria, config_wally, crm, dashboard_wally, embarques, existencias, gerencia, maria_agent, presupuesto, reportes, training, traslados
+from modules import asesores, gerencia_asesores, auditoria, config_wally, crm, dashboard_wally, embarques, existencias, gerencia, maria_agent, presupuesto, reportes, rotacion_analisis, training, traslados
 from services.env import env_value
 from services.local_store import init_store
 from services.paths import APP_DIR
@@ -24,20 +24,24 @@ st.set_page_config(
 
 CUSTOM_CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+* {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+}
 :root {
-    --wally-charcoal: #17202a;
-    --wally-charcoal-2: #202b36;
-    --wally-red: #cf2e2e;
-    --wally-blue: #2563eb;
+    --wally-charcoal: #0e0c15;
+    --wally-charcoal-2: #181222;
+    --wally-red: #6c1c36;
+    --wally-blue: #3b82f6;
     --wally-teal: #0f766e;
-    --wally-amber: #b45309;
-    --wally-ink: #101828;
-    --wally-muted: #667085;
-    --wally-bg: #f7f8fb;
+    --wally-amber: #d97706;
+    --wally-ink: #0f172a;
+    --wally-muted: #64748b;
+    --wally-bg: #fcfbfa;
     --wally-surface: #ffffff;
-    --wally-surface-2: #f1f5f9;
-    --wally-border: #d9e0ea;
-    --wally-shadow: 0 10px 28px rgba(16, 24, 40, .07);
+    --wally-surface-2: #f8fafc;
+    --wally-border: #e2e8f0;
+    --wally-shadow: 0 6px 20px rgba(108, 28, 54, 0.04), 0 2px 8px rgba(0, 0, 0, 0.02);
 }
 .stApp {
     background:
@@ -117,14 +121,16 @@ CUSTOM_CSS = """
     gap: 4px;
 }
 [data-testid="stSidebar"] [role="radiogroup"] label {
-    background: rgba(255,255,255,.055);
-    border: 1px solid rgba(255,255,255,.08);
+    background: rgba(255,255,255,.045);
+    border: 1px solid rgba(255,255,255,.07);
     border-radius: 8px;
-    padding: 4px 8px;
+    padding: 6px 10px;
     min-height: 34px;
+    transition: background 0.2s ease, border-color 0.2s ease;
 }
 [data-testid="stSidebar"] [role="radiogroup"] label:hover {
-    background: rgba(255,255,255,.11);
+    background: rgba(255,255,255,.09);
+    border-color: rgba(255,255,255,.15);
 }
 .block-container {
     max-width: 100%;
@@ -153,7 +159,7 @@ h1 {
     background: #ffffff;
     color: var(--wally-red);
     font-weight: 900;
-    box-shadow: 0 7px 22px rgba(0,0,0,.18);
+    box-shadow: 0 7px 22px rgba(108, 28, 54, .35);
 }
 .wally-brand-title {
     color: #ffffff;
@@ -201,7 +207,7 @@ h1 {
     position: relative;
     background: var(--wally-surface);
     border: 1px solid var(--wally-border);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 13px 13px 12px 14px;
     box-shadow: var(--wally-shadow);
     min-height: 112px;
@@ -211,6 +217,11 @@ h1 {
     flex-direction: column;
     justify-content: space-between;
     text-align: center;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.wally-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 24px rgba(108, 28, 54, 0.08), 0 4px 12px rgba(0, 0, 0, 0.03);
 }
 .wally-card::before {
     content: "";
@@ -281,7 +292,7 @@ h1 {
 .wally-panel, .wally-page-shell {
     background: var(--wally-surface);
     border: 1px solid var(--wally-border);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 12px 14px 8px 14px;
     box-shadow: var(--wally-shadow);
     margin-bottom: .85rem;
@@ -309,27 +320,30 @@ h1 {
 div[data-testid="stDataFrame"] {
     font-size: .82rem;
     border: 1px solid var(--wally-border);
-    border-radius: 8px;
+    border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 4px 16px rgba(16, 24, 40, .045);
 }
 .stDownloadButton button, .stButton button {
-    border-radius: 7px;
-    border: 1px solid var(--wally-blue);
-    background: var(--wally-blue);
+    border-radius: 8px;
+    border: 1px solid var(--wally-red);
+    background: var(--wally-red);
     color: #ffffff;
     font-weight: 700;
     min-height: 38px;
+    transition: all 0.2s ease;
 }
 .stDownloadButton button:hover, .stButton button:hover {
-    border-color: #1d4ed8;
-    background: #1d4ed8;
+    border-color: #58142a;
+    background: #58142a;
     color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(108, 28, 54, 0.25);
 }
 [data-testid="stMetric"] {
     background: var(--wally-surface);
     border: 1px solid var(--wally-border);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 12px;
     box-shadow: var(--wally-shadow);
 }
@@ -350,7 +364,10 @@ div[data-testid="stNumberInput"] input {
 PAGES = {
     "Resumen Ventas": dashboard_wally.render,
     "Asesores": asesores.render,
-    "Gerencia": gerencia.render,
+    "Gerencia Asesores": gerencia_asesores.render,
+    "Gerencia Financiera": gerencia.render,
+    "Gerencia Producto": gerencia.render_producto,
+    "Rotacion Derivada": rotacion_analisis.render,
     "Existencias": existencias.render,
     "Embarques y Coleccion": embarques.render,
     "CRM": crm.render,
@@ -366,7 +383,10 @@ PAGES = {
 PAGE_VIEWS = {
     "Resumen Ventas": "dbo.VwFacturaConImpuesto",
     "Asesores": "dbo.VwFacturaConImpuesto | SQLite local: pto_vendedor",
-    "Gerencia": "dbo.VwFacturaConImpuesto",
+    "Gerencia Asesores": "dbo.VwFacturaConImpuesto | SQLite local: pto_vendedor | dbo.VwColaboradoresTurno",
+    "Gerencia Financiera": "dbo.VwFacturaConImpuesto",
+    "Gerencia Producto": "dbo.VwFacturaConImpuesto | dbo.VwExistencia",
+    "Rotacion Derivada": "dbo.VwFacturaConImpuesto | dbo.VwExistencia | dbo.VwEntradasInventario",
     "Existencias": "dbo.VwExistencia",
     "Embarques y Coleccion": "dbo.VwFacturaConImpuesto | dbo.VwExistencia",
     "CRM": "dbo.VwClienteResumenCRM",
@@ -376,7 +396,7 @@ PAGE_VIEWS = {
     "Reportes": "dbo.VwFacturaConImpuesto | dbo.VwExistencia | dbo.VwEntradasInventario | SQLite local: pto_linea_sucursal",
     "Mar-IA Agent": "Vistas oficiales de Wally | SQLite local de memoria",
     "Entrenamiento": "SQLite local: semantic_dictionary | training_entries",
-    "Configuracion": "SQLite local | .env | vistas oficiales",
+    "Configuracion": "SQLite local | .env | vistas oficiales | dbo.VwColaboradoresTurno",
 }
 
 

@@ -313,6 +313,8 @@ def init_store() -> None:
         set_default_param("maria_local_transcription_enabled", "yes", "Activar respaldo local con faster-whisper", conn)
         set_default_param("maria_local_transcription_model", "small", "Modelo local de faster-whisper", conn)
         set_default_param("maria_personality_prompt", DEFAULT_MARIA_PERSONALITY_PROMPT, "Prompt editable de personalidad y reglas de Mar-IA", conn)
+        set_default_param("rot_threshold_vel", "1.0", "Umbral de velocidad de venta por defecto (% entradas/dia)", conn)
+        set_default_param("rot_threshold_inv", "30", "Umbral de inventario remanente por defecto (% entradas)", conn)
         seed_semantic_dictionary(conn)
         conn.commit()
     finally:

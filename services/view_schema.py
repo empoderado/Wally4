@@ -127,6 +127,17 @@ OFFICIAL_VIEW_COLUMNS: dict[str, set[str]] = {
         "PorcentajeFullPrecio",
         "PorcentajePromocion",
     },
+    "dbo.VwColaboradoresTurno": {
+        "CODIGO",
+        "Documento",
+        "Fecha Creacion",
+        "Nombre",
+        "Cargo",
+        "Sucursal",
+        "Turno",
+        "Fecha de alta",
+        "Activo",
+    },
 }
 
 

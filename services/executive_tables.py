@@ -107,7 +107,6 @@ def _row_html(row: pd.Series) -> str:
         f'<td>{_num(row["PromHistoricoUnid"])}</td><td>{_money(row["PromHistoricoVentaNeta"])}</td>'
         f'<td>{_num(row["HoyUnid"])}</td><td>{_money(row["HoyVentaNeta"])}</td>'
         f'<td>{_format_pct(row["VariacionUnidPct"])}</td><td>{_format_pct(row["VariacionVentaPct"])}</td>'
-        f'<td>{_format_pct(row["VariacionPromUnidPct"])}</td><td>{_format_pct(row["VariacionPromVentaPct"])}</td>'
         "</tr>"
     )
 
@@ -147,9 +146,8 @@ def render_hourly_comparison_table(df: pd.DataFrame, years: dict[str, int]) -> N
         '<th class="head-prom" colspan="2">PromHistorico</th>'
         f'<th class="head-today" colspan="2">Hoy {years["current"]}</th>'
         f'<th class="head-var" colspan="2">Variaci&oacute;n vs {years["previous"]}</th>'
-        '<th class="head-var" colspan="2">Variaci&oacute;n vs PromHistorico</th>'
         "</tr>"
-        "<tr><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid %</th><th>Venta %</th><th>Unid %</th><th>Venta %</th></tr>"
+        "<tr><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid %</th><th>Venta %</th></tr>"
         f"</thead><tbody>{body_html}</tbody></table></div>"
     )
     st.markdown(html, unsafe_allow_html=True)
@@ -225,12 +223,11 @@ def _daily_row_html(row: pd.Series) -> str:
         f'<td>{_num(row["PromHistoricoUnid"])}</td><td>{_money(row["PromHistoricoVentaNeta"])}</td>'
         f'<td>{_num(row["HoyUnid"])}</td><td>{_money(row["HoyVentaNeta"])}</td>'
         f'<td>{_format_pct(row["VariacionUnidPct"])}</td><td>{_format_pct(row["VariacionVentaPct"])}</td>'
-        f'<td>{_format_pct(row["VariacionPromUnidPct"])}</td><td>{_format_pct(row["VariacionPromVentaPct"])}</td>'
         "</tr>"
     )
 
 
-def _branch_range_total(rows: pd.DataFrame) -> pd.DataFrame:
+def _branch_range_total(rows: pd.DataFrame, best_year: int, years: dict[str, int]) -> pd.DataFrame:
     total = {
         "Ranking": "",
         "Sucursal": "Total",
@@ -243,14 +240,25 @@ def _branch_range_total(rows: pd.DataFrame) -> pd.DataFrame:
         "HoyUnid": rows["HoyUnid"].sum(),
         "HoyVentaNeta": rows["HoyVentaNeta"].sum(),
     }
+    
+    if best_year == years["hist_1"]:
+        best_unid = total["Historico2023Unid"]
+        best_venta = total["Historico2023VentaNeta"]
+    elif best_year == years["hist_2"]:
+        best_unid = total["Historico2024Unid"]
+        best_venta = total["Historico2024VentaNeta"]
+    else: # years["previous"]
+        best_unid = total["AnioAnteriorUnid"]
+        best_venta = total["AnioAnteriorVentaNeta"]
+
     total["VariacionUnidPct"] = (
-        ((total["HoyUnid"] - total["AnioAnteriorUnid"]) / total["AnioAnteriorUnid"]) * 100
-        if total["AnioAnteriorUnid"]
+        ((total["HoyUnid"] - best_unid) / best_unid) * 100
+        if best_unid
         else None
     )
     total["VariacionVentaPct"] = (
-        ((total["HoyVentaNeta"] - total["AnioAnteriorVentaNeta"]) / total["AnioAnteriorVentaNeta"]) * 100
-        if total["AnioAnteriorVentaNeta"]
+        ((total["HoyVentaNeta"] - best_venta) / best_venta) * 100
+        if best_venta
         else None
     )
     return pd.concat([rows, pd.DataFrame([total])], ignore_index=True)
@@ -271,12 +279,12 @@ def _branch_range_row_html(row: pd.Series) -> str:
     )
 
 
-def render_branch_range_comparison_table(df: pd.DataFrame, years: dict[str, int]) -> None:
+def render_branch_range_comparison_table(df: pd.DataFrame, years: dict[str, int], best_year: int) -> None:
     if df.empty:
         st.info("No hay datos por sucursal para el rango consultado.")
         return
 
-    rows = _branch_range_total(df.copy())
+    rows = _branch_range_total(df.copy(), best_year, years)
     body_html = "".join(_branch_range_row_html(row) for _, row in rows.iterrows())
     html = (
         "<style>"
@@ -304,12 +312,90 @@ def render_branch_range_comparison_table(df: pd.DataFrame, years: dict[str, int]
         f'<th class="head-hist" colspan="2">{years["hist_2"]}</th>'
         f'<th class="head-prev" colspan="2">{years["previous"]}</th>'
         f'<th class="head-today" colspan="2">Hoy {years["current"]}</th>'
-        f'<th class="head-var" colspan="2">Variaci&oacute;n vs {years["previous"]}</th>'
+        f'<th class="head-var" colspan="2">Variaci&oacute;n vs {best_year}</th>'
         "</tr>"
         "<tr><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid %</th><th>Venta %</th></tr>"
         f"</thead><tbody>{body_html}</tbody></table></div>"
     )
     st.markdown(html, unsafe_allow_html=True)
+
+
+def render_branch_today_comparison_table(df: pd.DataFrame, years: dict[str, int], best_year: int) -> None:
+    if df.empty:
+        st.info("No hay datos por sucursal para el dia de hoy.")
+        return
+
+    rows = _branch_today_total(df.copy(), best_year, years)
+    body_html = "".join(_branch_range_row_html(row) for _, row in rows.iterrows())
+    html = (
+        "<style>"
+        ".wally-range-table-wrap{width:max-content;max-width:100%;overflow-x:auto;border:1px solid #d8dee8;border-radius:8px;background:#fff;box-shadow:0 2px 10px rgba(15,23,42,.045);margin-bottom:12px}"
+        "table.wally-range-table{width:auto;min-width:0;border-collapse:separate;border-spacing:0;font-size:.74rem;color:#0f172a;table-layout:auto}"
+        ".wally-range-table th,.wally-range-table td{padding:6px 8px;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;white-space:nowrap;line-height:1.15}"
+        ".wally-range-table thead tr:first-child th{background:#0f1f33;color:#fff;text-align:center;font-weight:800;letter-spacing:0}"
+        ".wally-range-table thead tr:nth-child(2) th{color:#334155;text-align:center;font-weight:760}"
+        ".wally-range-table .head-hist{background:#edf2f7!important;color:#0f172a!important}"
+        ".wally-range-table .head-prev{background:#dbeafe!important;color:#1e3a8a!important}"
+        ".wally-range-table .head-today{background:#dcfce7!important;color:#14532d!important}"
+        ".wally-range-table .head-var{background:#fef3c7!important;color:#92400e!important}"
+        ".wally-range-table td{text-align:right;background:#fff}"
+        ".wally-range-table .wally-rank{min-width:48px;text-align:center;color:#334155;background:#f8fafc;position:sticky;left:0;z-index:1}"
+        ".wally-range-table .wally-branch{min-width:130px;text-align:left;font-weight:720;color:#334155;background:#fff;position:sticky;left:50px;z-index:1}"
+        ".wally-range-table .wally-total-row td{background:#fff7ed;color:#7c2d12;font-weight:850}"
+        ".wally-range-table th:not(:first-child),.wally-range-table td:not(:first-child){min-width:68px;max-width:104px}"
+        ".wally-var-pos{color:#047857;font-weight:850}.wally-var-neg{color:#dc2626;font-weight:850}.wally-var-neu{color:#64748b;font-weight:850}.wally-var-na{color:#94a3b8;font-weight:850}"
+        "</style>"
+        '<div class="wally-range-table-wrap"><table class="wally-range-table"><thead>'
+        "<tr>"
+        '<th rowspan="2">Ranking</th>'
+        '<th rowspan="2">Sucursal</th>'
+        f'<th class="head-hist" colspan="2">{years["hist_1"]}</th>'
+        f'<th class="head-hist" colspan="2">{years["hist_2"]}</th>'
+        f'<th class="head-prev" colspan="2">{years["previous"]}</th>'
+        f'<th class="head-today" colspan="2">Hoy {years["current"]}</th>'
+        f'<th class="head-var" colspan="2">Variaci&oacute;n vs {best_year}</th>'
+        "</tr>"
+        "<tr><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid %</th><th>Venta %</th></tr>"
+        f"</thead><tbody>{body_html}</tbody></table></div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _branch_today_total(rows: pd.DataFrame, best_year: int, years: dict[str, int]) -> pd.DataFrame:
+    total = {
+        "Ranking": "",
+        "Sucursal": "Total",
+        "Historico2023Unid": rows["Historico2023Unid"].sum(),
+        "Historico2023VentaNeta": rows["Historico2023VentaNeta"].sum(),
+        "Historico2024Unid": rows["Historico2024Unid"].sum(),
+        "Historico2024VentaNeta": rows["Historico2024VentaNeta"].sum(),
+        "AnioAnteriorUnid": rows["AnioAnteriorUnid"].sum(),
+        "AnioAnteriorVentaNeta": rows["AnioAnteriorVentaNeta"].sum(),
+        "HoyUnid": rows["HoyUnid"].sum(),
+        "HoyVentaNeta": rows["HoyVentaNeta"].sum(),
+    }
+    
+    if best_year == years["hist_1"]:
+        best_unid = total["Historico2023Unid"]
+        best_venta = total["Historico2023VentaNeta"]
+    elif best_year == years["hist_2"]:
+        best_unid = total["Historico2024Unid"]
+        best_venta = total["Historico2024VentaNeta"]
+    else: # years["previous"]
+        best_unid = total["AnioAnteriorUnid"]
+        best_venta = total["AnioAnteriorVentaNeta"]
+
+    total["VariacionUnidPct"] = (
+        ((total["HoyUnid"] - best_unid) / best_unid) * 100
+        if best_unid
+        else None
+    )
+    total["VariacionVentaPct"] = (
+        ((total["HoyVentaNeta"] - best_venta) / best_venta) * 100
+        if best_venta
+        else None
+    )
+    return pd.concat([rows, pd.DataFrame([total])], ignore_index=True)
 
 
 def _shipment_row_html(row: pd.Series) -> str:
@@ -481,6 +567,105 @@ def render_line_performance_table(df: pd.DataFrame) -> None:
     st.markdown(html, unsafe_allow_html=True)
 
 
+def render_subline_performance_table(df: pd.DataFrame) -> None:
+    if df.empty:
+        st.info("No hay datos de existencias y ventas por sublinea para el rango seleccionado.")
+        return
+
+    rows = _subline_performance_total(df.copy())
+    body_html = "".join(_subline_performance_row_html(row) for _, row in rows.iterrows())
+    html = (
+        "<style>"
+        ".wally-subline-performance-wrap{width:max-content;max-width:100%;overflow-x:auto;border:1px solid #d8dee8;border-radius:8px;background:#fff;box-shadow:0 2px 10px rgba(15,23,42,.045);margin-bottom:18px}"
+        "table.wally-subline-performance{width:auto;min-width:0;border-collapse:separate;border-spacing:0;font-size:.74rem;color:#0f172a;table-layout:auto}"
+        ".wally-subline-performance th,.wally-subline-performance td{padding:6px 7px;border-right:1px solid #d8dee8;border-bottom:1px solid #d8dee8;white-space:nowrap;line-height:1.15;min-width:58px;max-width:98px}"
+        ".wally-subline-performance thead tr:first-child th{background:#0f1f33;color:#fff;text-align:center;font-weight:850}"
+        ".wally-subline-performance thead tr:nth-child(2) th{background:#dff3fb;color:#0f172a;text-align:center;font-weight:800}"
+        ".wally-subline-performance .head-stock{background:#edf2f7!important;color:#0f172a!important}"
+        ".wally-subline-performance .head-sales{background:#dbeafe!important;color:#1e3a8a!important}"
+        ".wally-subline-performance .head-budget{background:#fef3c7!important;color:#92400e!important}"
+        ".wally-subline-performance .head-compliance{background:#dcfce7!important;color:#14532d!important}"
+        ".wally-subline-performance td{text-align:right;background:#fff}"
+        ".wally-subline-performance .wally-line{min-width:150px;max-width:220px;text-align:left;font-weight:800;color:#334155;background:#f8fafc;position:sticky;left:0;z-index:1}"
+        ".wally-subline-performance .wally-subline{min-width:130px;max-width:220px;text-align:left;font-weight:720;color:#334155;background:#fff;position:sticky;left:150px;z-index:1}"
+        ".wally-subline-performance .wally-subtotal-row td{background:#f8fafc;font-weight:800;border-top:1.5px solid #cbd5e1;border-bottom:1.5px solid #cbd5e1}"
+        ".wally-subline-performance .wally-subtotal-row .wally-line{background:#edf2f7;color:#0f172a}"
+        ".wally-subline-performance .wally-subtotal-row .wally-subline{background:#f8fafc;color:#0f172a}"
+        ".wally-subline-performance .wally-total-row td{background:#fff7ed;color:#7c2d12;font-weight:900}"
+        ".wally-subline-performance .wally-budget-ok{color:#047857;font-weight:900}"
+        "</style>"
+        '<div class="wally-subline-performance-wrap"><table class="wally-subline-performance"><thead>'
+        "<tr>"
+        '<th rowspan="2" class="wally-line">LINEA</th>'
+        '<th rowspan="2" class="wally-subline">SUBLINEA</th>'
+        '<th class="head-stock" colspan="1">Stock</th>'
+        '<th class="head-sales" colspan="4">VENTAS</th>'
+        '<th class="head-budget" colspan="2">Presupuesto</th>'
+        '<th class="head-compliance" colspan="2">Cumplimiento</th>'
+        "</tr>"
+        "<tr><th>Unidades</th><th>Unidades</th><th>VentaQ</th><th>VentaDolar</th><th>%Venta</th><th>Unidades</th><th>Venta</th><th>Unidades</th><th>Venta</th></tr>"
+        f"</thead><tbody>{body_html}</tbody></table></div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _subline_performance_total(rows: pd.DataFrame) -> pd.DataFrame:
+    sublines_only = rows[rows["Sublinea"] != "Subtotal"]
+    subtotals_only = rows[rows["Sublinea"] == "Subtotal"]
+    
+    total = {
+        "Linea": "TOTAL",
+        "Sublinea": "",
+        "StockUnidades": sublines_only["StockUnidades"].sum(),
+        "VentasUnidades": sublines_only["VentasUnidades"].sum(),
+        "VentaQ": sublines_only["VentaQ"].sum(),
+        "VentaDolar": sublines_only["VentaDolar"].sum(),
+        "PresupuestoUnidades": subtotals_only["PresupuestoUnidades"].sum(),
+        "PresupuestoVenta": subtotals_only["PresupuestoVenta"].sum(),
+    }
+    total["PorcVenta"] = 100 if total["VentaQ"] else 0
+    total["CumplUnidades"] = (
+        (total["VentasUnidades"] / total["PresupuestoUnidades"]) * 100
+        if total["PresupuestoUnidades"]
+        else None
+    )
+    total["CumplVenta"] = (
+        (total["VentaQ"] / total["PresupuestoVenta"]) * 100
+        if total["PresupuestoVenta"]
+        else None
+    )
+    return pd.concat([rows, pd.DataFrame([total])], ignore_index=True)
+
+
+def _subline_performance_row_html(row: pd.Series) -> str:
+    sub_val = str(row["Sublinea"]).strip()
+    is_subtotal = (sub_val == "Subtotal")
+    is_total = (str(row["Linea"]).strip().upper() == "TOTAL")
+    
+    if is_total:
+        row_class = "wally-total-row"
+    elif is_subtotal:
+        row_class = "wally-subtotal-row"
+    else:
+        row_class = ""
+        
+    return (
+        f'<tr class="{row_class}">'
+        f'<td class="wally-line">{escape(str(row["Linea"]))}</td>'
+        f'<td class="wally-subline">{escape(str(row["Sublinea"]))}</td>'
+        f'<td>{_num(row["StockUnidades"])}</td>'
+        f'<td>{_num(row["VentasUnidades"])}</td>'
+        f'<td>{_money(row["VentaQ"])}</td>'
+        f'<td>{_usd(row["VentaDolar"])}</td>'
+        f'<td>{_performance_pct(row["PorcVenta"])}</td>'
+        f'<td>{_num(row["PresupuestoUnidades"])}</td>'
+        f'<td>{_money(row["PresupuestoVenta"])}</td>'
+        f'<td>{_budget_performance_pct(row["CumplUnidades"])}</td>'
+        f'<td>{_budget_performance_pct(row["CumplVenta"])}</td>'
+        "</tr>"
+    )
+
+
 def render_daily_comparison_table(df: pd.DataFrame, years: dict[str, int]) -> None:
     if df.empty:
         st.info("No hay datos diarios para el rango consultado.")
@@ -516,9 +701,71 @@ def render_daily_comparison_table(df: pd.DataFrame, years: dict[str, int]) -> No
         '<th class="head-prom" colspan="2">PromHistorico</th>'
         f'<th class="head-today" colspan="2">Hoy {years["current"]}</th>'
         f'<th class="head-var" colspan="2">Variaci&oacute;n vs {years["previous"]}</th>'
-        '<th class="head-var" colspan="2">Variaci&oacute;n vs PromHistorico</th>'
         "</tr>"
-        "<tr><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid %</th><th>Venta %</th><th>Unid %</th><th>Venta %</th></tr>"
+        "<tr><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid</th><th>Venta Neta</th><th>Unid %</th><th>Venta %</th></tr>"
         f"</thead><tbody>{body_html}</tbody></table></div>"
     )
     st.markdown(html, unsafe_allow_html=True)
+
+
+def render_shipment_summary_table_style_daily(df: pd.DataFrame) -> None:
+    if df.empty:
+        st.info("No hay datos de embarques para mostrar.")
+        return
+
+    rows = _append_shipment_total(df.copy())
+    body_html = "".join(_shipment_row_html_style_daily(row) for _, row in rows.iterrows())
+    html = (
+        "<style>"
+        ".wally-ship-daily-wrap{width:max-content;max-width:100%;overflow-x:auto;border:1px solid #d8dee8;border-radius:8px;background:#fff;box-shadow:0 2px 10px rgba(15,23,42,.045);margin-bottom:12px}"
+        "table.wally-ship-daily{width:auto;min-width:0;border-collapse:separate;border-spacing:0;font-size:.74rem;color:#0f172a;table-layout:auto}"
+        ".wally-ship-daily th,.wally-ship-daily td{padding:6px 7px;border-right:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;white-space:nowrap;line-height:1.15}"
+        ".wally-ship-daily thead tr:first-child th{background:#0f1f33;color:#fff;text-align:center;font-weight:800;letter-spacing:0}"
+        ".wally-ship-daily thead tr:nth-child(2) th{color:#334155;text-align:center;font-weight:760;background:#f8fafc}"
+        ".wally-ship-daily td{text-align:right;background:#fff}"
+        ".wally-ship-daily .col-embarque{min-width:110px;text-align:center}"
+        ".wally-ship-daily .col-fecha{min-width:145px;text-align:center}"
+        ".wally-ship-daily .col-tvida{min-width:65px;text-align:right}"
+        ".wally-ship-daily .col-entrada{min-width:85px;text-align:right}"
+        ".wally-ship-daily .col-existencia{min-width:125px;text-align:right}"
+        ".wally-ship-daily .col-facturadas{min-width:150px;text-align:right}"
+        ".wally-ship-daily .col-rotacion{min-width:100px;text-align:right}"
+        ".wally-ship-daily td.col-embarque{text-align:center}"
+        ".wally-ship-daily td.col-fecha{text-align:center}"
+        ".wally-ship-daily .head-stock{background:#dcfce7!important;color:#14532d!important}"
+        ".wally-ship-daily .head-sales{background:#dbeafe!important;color:#1e3a8a!important}"
+        ".wally-ship-daily .head-rotation{background:#fef3c7!important;color:#92400e!important}"
+        ".wally-ship-daily .wally-shipment{font-weight:720;color:#334155;background:#f8fafc;position:sticky;left:0;z-index:1}"
+        ".wally-ship-daily .wally-date{color:#334155}"
+        ".wally-ship-daily .wally-total-row td{background:#fff7ed;color:#7c2d12;font-weight:850}"
+        ".wally-var-pos{color:#047857;font-weight:850}.wally-var-neg{color:#dc2626;font-weight:850}.wally-var-neu{color:#64748b;font-weight:850}.wally-var-na{color:#94a3b8;font-weight:850}"
+        "</style>"
+        '<div class="wally-ship-daily-wrap"><table class="wally-ship-daily"><thead>'
+        "<tr>"
+        '<th class="col-embarque" rowspan="2">Embarque</th>'
+        '<th class="col-fecha" rowspan="2">Fecha entrada dia 1</th>'
+        '<th class="col-tvida" rowspan="2">TVida</th>'
+        '<th class="head-stock" colspan="2">Inventario</th>'
+        '<th class="head-sales" colspan="1">Facturacion desde dia 1</th>'
+        '<th class="head-rotation" colspan="1">Rotacion</th>'
+        "</tr>"
+        '<tr><th class="col-entrada">Entrada</th><th class="col-existencia">Existencia Fisica</th><th class="col-facturadas">Unidades Facturadas</th><th class="col-rotacion">%Rotacion</th></tr>'
+        f"</thead><tbody>{body_html}</tbody></table></div>"
+    )
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def _shipment_row_html_style_daily(row: pd.Series) -> str:
+    row_class = "wally-total-row" if str(row["Embarque"]).strip().lower() == "total" else ""
+    return (
+        f'<tr class="{row_class}">'
+        f'<td class="wally-shipment col-embarque">{escape(str(row["Embarque"]))}</td>'
+        f'<td class="wally-date col-fecha">{escape(str(row["Fecha Entrada Dia 1"]))}</td>'
+        f'<td class="col-tvida">{_num(row["TVida"])}</td>'
+        f'<td class="col-entrada">{_num(row["Entrada"])}</td>'
+        f'<td class="col-existencia">{_num(row["Existencia Fisica"])}</td>'
+        f'<td class="col-facturadas">{_num(row["Unidades Facturadas"])}</td>'
+        f'<td class="col-rotacion">{_format_pct(row["%Rotacion"])}</td>'
+        "</tr>"
+    )
+

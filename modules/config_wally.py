@@ -14,7 +14,8 @@ from services.maria_ai import configuration_status
 from services.paths import APP_DIR, sqlite_path
 from services.telegram import DEFAULT_API_URL, get_telegram_config, normalize_api_url, test_telegram_connection
 from services.transfers import load_branch_priorities, official_branches, save_branch_priorities
-from services.ui import display_table, page_title, section_title
+from services.ui import display_table, page_title, section_title, code_footer
+from services.catalog import get_code
 
 
 PROVIDERS = ["openai", "gemini", "deepseek", "openai_compatible"]
@@ -55,8 +56,8 @@ def _masked_parameter_table():
 def render() -> None:
     page_title("Configuracion", "Centro unico de parametros de Wally")
 
-    tab_general, tab_sql, tab_ia, tab_telegram, tab_crm, tab_sucursales, tab_presupuesto, tab_traslados, tab_local = st.tabs(
-        ["General", "Conexion SQL", "Mar-IA", "Telegram", "CRM", "Sucursales", "Presupuesto", "Traslados", "Datos locales"]
+    tab_general, tab_sql, tab_ia, tab_telegram, tab_crm, tab_sucursales, tab_presupuesto, tab_traslados, tab_rotacion, tab_local, tab_colaboradores = st.tabs(
+        ["General", "Conexion SQL", "Mar-IA", "Telegram", "CRM", "Sucursales", "Presupuesto", "Traslados", "Rotación Derivada", "Datos locales", "Colaboradores"]
     )
 
     with tab_general:
@@ -71,12 +72,18 @@ def render() -> None:
         st.caption("La version inicial lee valores desde el archivo .env. En la version comercial se editara desde esta pantalla.")
         env_file = APP_DIR / ".env"
         st.write(f"Archivo .env: `{env_file}`")
-        if st.button("Probar conexion SQL"):
-            ok, message = db.test_connection()
-            if ok:
-                st.success(message)
-            else:
-                st.error(message)
+        col_conn, col_cache = st.columns(2)
+        with col_conn:
+            if st.button("Probar conexion SQL", use_container_width=True):
+                ok, message = db.test_connection()
+                if ok:
+                    st.success(message)
+                else:
+                    st.error(message)
+        with col_cache:
+            if st.button("Limpiar cache de consultas", use_container_width=True):
+                db.clear_query_cache()
+                st.success("Cache de consultas limpiada. Se forzara la recarga de datos reales.")
         st.write("Vistas oficiales:")
         st.code(
             "\n".join(
@@ -410,6 +417,38 @@ def render() -> None:
             save_branch_priorities(edited_priorities)
             st.success("Prioridades de traslados guardadas.")
 
+    with tab_rotacion:
+        section_title("Configuración de Rotación Derivada")
+        st.caption("Ajusta los umbrales globales por defecto para clasificar las referencias de inventario.")
+
+        try:
+            current_vel = float(get_param("rot_threshold_vel", "1.0"))
+        except ValueError:
+            current_vel = 1.0
+
+        try:
+            current_inv = int(get_param("rot_threshold_inv", "30"))
+        except ValueError:
+            current_inv = 30
+
+        with st.form("rot_thresholds_form"):
+            vel_threshold_admin = st.slider(
+                "Umbral de Velocidad por Defecto (% de entradas / día)",
+                0.0, 10.0, current_vel, 0.1,
+                key="rot_threshold_vel_admin"
+            )
+            inv_threshold_admin = st.slider(
+                "Umbral de Inventario por Defecto (% de entradas)",
+                0, 100, current_inv, 5,
+                key="rot_threshold_inv_admin"
+            )
+
+            submitted_rot = st.form_submit_button("Guardar Umbrales de Rotación")
+            if submitted_rot:
+                set_param("rot_threshold_vel", f"{vel_threshold_admin:.2f}", "Umbral de velocidad de venta por defecto (% entradas/dia)")
+                set_param("rot_threshold_inv", str(inv_threshold_admin), "Umbral de inventario remanente por defecto (% entradas)")
+                st.success("Umbrales de rotación guardados exitosamente.")
+
     with tab_local:
         section_title("SQLite local")
         st.write(f"Base local: `{sqlite_path()}`")
@@ -431,6 +470,9 @@ def render() -> None:
             with st.expander(table_name):
                 table = _masked_parameter_table() if table_name == "app_parametros" else read_table(table_name)
                 display_table(table, height=260, show_total=False)
+
+    with tab_colaboradores:
+        _render_colaboradores_turnos()
 
 
 def _render_maria_memory_admin() -> None:
@@ -503,3 +545,160 @@ def _render_maria_memory_admin() -> None:
                             days=int(days),
                         )
                         st.success("Memoria guardada.")
+
+
+def _render_colaboradores_turnos() -> None:
+    import pandas as pd
+    section_title("Turnos de Colaboradores")
+    st.caption("Administra los turnos de trabajo (Diurno, Mixto, Completo o Nocturno) de los colaboradores del ERP.")
+
+    try:
+        df = db.read_sql("SELECT * FROM dbo.VwColaboradoresTurno ORDER BY ABS(CODIGO) ASC")
+    except Exception as exc:
+        st.error(f"Error al cargar vista de colaboradores: {exc}")
+        return
+
+    if df.empty:
+        st.warning("No se encontraron colaboradores.")
+        return
+
+    # Filter by active status
+    col_filter, col_download = st.columns([0.5, 0.5])
+    with col_filter:
+        estado_filter = st.selectbox(
+            "Filtrar por estado del colaborador",
+            options=["Todos", "Solo activos", "Solo inactivos"],
+            index=1,  # Default to Solo activos
+            key="colab_estado_filter"
+        )
+
+    with col_download:
+        # Filter active sellers (Cargo == 'Vendedor' and Activo == True)
+        df_vendedores = df[(df["Activo"] == True) & (df["Cargo"].str.strip().str.upper() == "VENDEDOR")].copy()
+        df_excel = df_vendedores[["CODIGO", "Nombre", "Cargo", "Sucursal", "Turno"]].copy()
+        df_excel.columns = ["Codigo", "Colaborador", "Cargo", "Sucursal", "Turno"]
+        
+        import io
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_excel.to_excel(writer, index=False, sheet_name='Vendedores')
+        excel_data = output.getvalue()
+        
+        st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)
+        st.download_button(
+            label="📥 Descargar Excel Vendedores Activos",
+            data=excel_data,
+            file_name="Vendedores_Activos.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="download_vendedores_excel"
+        )
+
+    if estado_filter == "Solo activos":
+        df_filtered = df[df["Activo"] == True]
+    elif estado_filter == "Solo inactivos":
+        df_filtered = df[df["Activo"] == False]
+    else:
+        df_filtered = df
+
+    st.write("### Listado de Colaboradores y Turnos")
+    if df_filtered.empty:
+        st.info("No hay colaboradores que coincidan con el filtro seleccionado.")
+    else:
+        df_display = df_filtered.copy()
+        if "Fecha Creacion" in df_display.columns:
+            df_display["Fecha Creacion"] = pd.to_datetime(df_display["Fecha Creacion"]).dt.strftime("%Y-%m-%d %H:%M")
+        if "Fecha de alta" in df_display.columns:
+            df_display["Fecha de alta"] = pd.to_datetime(df_display["Fecha de alta"]).dt.strftime("%Y-%m-%d %H:%M").fillna("Sin ventas")
+        if "Activo" in df_display.columns:
+            df_display["Activo"] = df_display["Activo"].map(lambda x: "Activo" if x else "Inactivo")
+
+        # Format values to match display_table aesthetics
+        from services.ui import _format_value
+        formatted = df_display.copy()
+        for col in formatted.columns:
+            formatted[col] = formatted[col].map(lambda val, c=col: _format_value(val, c))
+        
+        numeric_columns = [col for col in df_filtered.columns if pd.api.types.is_numeric_dtype(df_filtered[col])]
+        styler = formatted.style
+        if numeric_columns:
+            styler = styler.set_properties(subset=numeric_columns, **{"text-align": "right"})
+            
+        event = st.dataframe(
+            styler,
+            use_container_width=True,
+            hide_index=True,
+            height=350,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="colab_table"
+        )
+        
+        # Handle selection
+        selected_row_idx = None
+        if event and hasattr(event, "selection") and "rows" in event.selection and event.selection["rows"]:
+            selected_row_idx = event.selection["rows"][0]
+            
+        if selected_row_idx is not None and selected_row_idx < len(df_filtered):
+            selected_codigo = int(df_filtered.iloc[selected_row_idx]["CODIGO"])
+            st.session_state["selected_colab_code_state"] = selected_codigo
+
+    st.markdown("---")
+    st.write("### Asignar o Cambiar Turno")
+
+    colab_options = []
+    for _, row in df_filtered.iterrows():
+        cod = int(row["CODIGO"])
+        name = str(row["Nombre"])
+        cargo = str(row["Cargo"])
+        status_label = "Activo" if row["Activo"] else "Inactivo"
+        colab_options.append((cod, f"{name} (Código: {cod} - Puesto: {cargo} - {status_label})"))
+
+    if not colab_options:
+        st.warning("No hay colaboradores disponibles para asignar turnos.")
+        return
+
+    colab_ids = [opt[0] for opt in colab_options]
+
+    # Calculate default select index based on selection state
+    default_colab_id = st.session_state.get("selected_colab_code_state")
+    if default_colab_id in colab_ids:
+        default_select_idx = colab_ids.index(default_colab_id)
+    else:
+        default_select_idx = 0
+
+    colab_selected = st.selectbox(
+        "Seleccione el colaborador",
+        options=colab_ids,
+        index=default_select_idx,
+        format_func=lambda x: next(opt[1] for opt in colab_options if opt[0] == x),
+        key="selected_colab_turno_box"
+    )
+    st.session_state["selected_colab_code_state"] = colab_selected
+
+    current_turno = "Diurno"
+    matched = df[df["CODIGO"] == colab_selected]
+    if not matched.empty:
+        current_turno = str(matched.iloc[0]["Turno"])
+
+    turno_options = ["Diurno", "Mixto", "Completo", "Nocturno"]
+    default_idx = turno_options.index(current_turno) if current_turno in turno_options else 0
+
+    new_turno = st.selectbox(
+        "Turno de trabajo",
+        options=turno_options,
+        index=default_idx,
+        key="new_colab_turno"
+    )
+
+    if st.button("Guardar Turno", use_container_width=True):
+        try:
+            db.save_colaborador_turno(colab_selected, new_turno)
+            st.success(f"Turno '{new_turno}' guardado exitosamente.")
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Error al guardar turno: {exc}")
+
+    # Code footer
+    st.markdown("---")
+    code_footer(*get_code("colaboradores", "detail_table"))

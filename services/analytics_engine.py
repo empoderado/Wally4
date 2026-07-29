@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import re
@@ -31,11 +31,11 @@ VENTAS_METRICS = {
     "venta_bruta": "SUM(ISNULL(VentaBruta, 0))",
     "descuento": "SUM(ISNULL(DescuentoValor, 0))",
     "costo": "SUM(ISNULL(CostoTotal, 0))",
-    "margen": "SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0))",
+    "margen": "SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0))",
     "ticket_promedio": "SUM(ISNULL(VentaNetaQ, 0)) / NULLIF(COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END), 0)",
     "upt": "CAST(SUM(ISNULL(Unidades, 0)) AS decimal(18, 4)) / NULLIF(COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END), 0)",
     "vr_unidad_promedio": "SUM(ISNULL(VentaNetaQ, 0)) / NULLIF(SUM(ISNULL(Unidades, 0)), 0)",
-    "porc_margen": "(SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0))) / NULLIF(SUM(ISNULL(VentaNetaQ, 0)), 0)",
+    "porc_margen": "(SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0))) / NULLIF(SUM(ISNULL(VentaNetaQ, 0)) / 1.12, 0)",
 }
 
 EXISTENCIA_DIMENSIONS = {
@@ -201,8 +201,8 @@ def comparativo_ventas_anual(ultimos_anios: int = 4) -> dict:
             SUM(ISNULL(VentaNetaQ, 0)) AS VentaNetaQ,
             SUM(ISNULL(Unidades, 0)) AS Unidades,
             COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
-            SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ,
-            (SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0))) / NULLIF(SUM(ISNULL(VentaNetaQ, 0)), 0) AS PorcMargen
+            SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0)) AS MargenQ,
+            (SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0))) / NULLIF(SUM(ISNULL(VentaNetaQ, 0)) / 1.12, 0) AS PorcMargen
         FROM {db.VIEW_VENTAS}
         WHERE YEAR(CAST(Fecha AS date)) BETWEEN ? AND ?
         GROUP BY YEAR(CAST(Fecha AS date))

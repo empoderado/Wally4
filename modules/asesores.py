@@ -68,8 +68,9 @@ def _where_filters(sucursales: list[str], vendedores: list[str]) -> str:
 def _normalize_branch(value: object) -> str:
     text = str(value or "").strip().upper()
     replacements = {
-        "PARQUE LAS AMERICAS": "AMERICAS",
-        "PARQUE LAS AMÉRICAS": "AMERICAS",
+        "PARQUE LAS AMERICAS": "LAS AMERICAS",
+        "PARQUE LAS AMÉRICAS": "LAS AMERICAS",
+        "AMERICAS": "LAS AMERICAS",
         "ON-LINE": "ONLINE",
         "NARANJO": "NARANJO MALL",
     }
@@ -104,7 +105,7 @@ def _read_sales(start_date: date, end_date: date, sucursales: list[str], vendedo
             SUM(ISNULL(VentaNetaQ, 0)) AS VentaQ,
             SUM(CASE WHEN Trn = 'FV' THEN ISNULL(Unidades, 0) ELSE 0 END) AS UnidadesUPT,
             COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
-            SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
+            SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
         WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
           AND {where_extra}
@@ -171,6 +172,7 @@ def _build_block(start_date: date, end_date: date, sucursales: list[str], vended
     data["Sucursal"] = data.get("Sucursal_Venta", "").fillna("").astype(str).str.strip()
     budget_branch = data.get("Sucursal_Ppto", "").fillna("").astype(str).str.strip()
     data["Sucursal"] = data["Sucursal"].mask(data["Sucursal"].eq(""), budget_branch)
+    data["Sucursal"] = data["Sucursal"].map(_normalize_branch)
     data["Asesor"] = data.get("Asesor_Venta", "").fillna("").astype(str).str.strip()
     budget_advisor = data.get("Asesor_Ppto", "").fillna("").astype(str).str.strip()
     data["Asesor"] = data["Asesor"].mask(data["Asesor"].eq(""), budget_advisor)
@@ -188,7 +190,7 @@ def _add_calculated_columns(data: pd.DataFrame) -> pd.DataFrame:
     frame["TicketPromedio"] = frame["VentaQ"] / frame["Facturas"].replace({0: pd.NA})
     frame["UPT"] = frame["UnidadesUPT"] / frame["Facturas"].replace({0: pd.NA})
     frame["VrUnidadPromedio"] = frame["VentaQ"] / frame["Unidades"].replace({0: pd.NA})
-    frame["PorcMargen"] = frame["MargenQ"] / frame["VentaQ"].replace({0: pd.NA})
+    frame["PorcMargen"] = frame["MargenQ"] / (frame["VentaQ"] / 1.12).replace({0: pd.NA})
     frame["CumplimientoUnidades"] = frame["Unidades"] / frame["PptoUnidades"].replace({0: pd.NA})
     frame["CumplimientoVenta"] = frame["VentaQ"] / frame["PptoVenta"].replace({0: pd.NA})
     frame["Pendiente"] = frame["PptoVenta"] - frame["VentaQ"]
@@ -571,12 +573,24 @@ def render() -> None:
     _report_css()
     page_title("Asesores", "Reporte diario y acumulado por sucursal y asesor")
     code_footer(*get_code("asesores", "report"))
-    end_date = date.today()
-    start_date = end_date
+    start_date, end_date = _date_filters()
     month_start = _month_start(end_date)
+    start, end = db.date_params(start_date, end_date)
+    rango_fecha = f"Fecha >= '{start}' AND Fecha < DATEADD(day, 1, '{end}')"
+
+    def format_sucursal(val):
+        cleaned = str(val).strip().upper()
+        if cleaned in {"PARQUE LAS AMERICAS", "PARQUE LAS AMÉRICAS", "AMERICAS"}:
+            return "LAS AMERICAS"
+        return cleaned
+
     try:
-        sucursales = optional_multiselect("Sucursal", db.distinct_values(db.VIEW_VENTAS, "Sucursal"))
-        vendedores = optional_multiselect("Asesor", db.distinct_values(db.VIEW_VENTAS, "Vendedor"))
+        sucursales = optional_multiselect(
+            "Sucursal",
+            db.distinct_values(db.VIEW_VENTAS, "Sucursal", where=rango_fecha),
+            format_func=format_sucursal
+        )
+        vendedores = optional_multiselect("Asesor", db.distinct_values(db.VIEW_VENTAS, "Vendedor", where=rango_fecha))
     except Exception as exc:
         st.error("No se pudieron cargar filtros de asesores.")
         st.exception(exc)

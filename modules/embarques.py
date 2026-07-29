@@ -35,10 +35,12 @@ def render() -> None:
     code_footer(*get_code("embarques", "report"))
 
     start_date, end_date = date_sidebar()
+    start, end = db.date_params(start_date, end_date)
+    rango_fecha = f"Fecha >= '{start}' AND Fecha < DATEADD(day, 1, '{end}')"
     try:
-        sucursales = optional_multiselect("Sucursal", db.distinct_values(db.VIEW_VENTAS, "Sucursal"))
-        lineas = optional_multiselect("Linea", db.distinct_values(db.VIEW_VENTAS, "Linea"))
-        tipos = optional_multiselect("Tipo prenda", db.distinct_values(db.VIEW_VENTAS, "DescripTipoPrenda"))
+        sucursales = optional_multiselect("Sucursal", db.distinct_values(db.VIEW_VENTAS, "Sucursal", where=rango_fecha))
+        lineas = optional_multiselect("Linea", db.distinct_values(db.VIEW_VENTAS, "Linea", where=rango_fecha))
+        tipos = optional_multiselect("Tipo prenda", db.distinct_values(db.VIEW_VENTAS, "DescripTipoPrenda", where=rango_fecha))
     except Exception as exc:
         st.error("No se pudieron cargar filtros de embarques y coleccion.")
         st.exception(exc)
@@ -49,7 +51,6 @@ def render() -> None:
     color = color_picker()
 
     where_extra = _where({"Sucursal": sucursales, "Linea": lineas, "DescripTipoPrenda": tipos})
-    start, end = db.date_params(start_date, end_date)
 
     try:
         data = db.read_sql(
@@ -200,10 +201,12 @@ def render() -> None:
             }
         )
         display_table(tabla_embarque, height=360)
+        code_footer(*get_code("embarques", "detail_table"))
     with cols[1]:
         section_title("Tabla por Coleccion")
         tabla_coleccion = by_coleccion.rename(columns={"Coleccion_EN": "Coleccion", "VentaNetaQ": "Venta Q"})
         display_table(tabla_coleccion, height=360)
+        code_footer(*get_code("embarques", "detail_table"))
 
     try:
         existencia_data = db.read_sql(

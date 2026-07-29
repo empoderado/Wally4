@@ -29,7 +29,7 @@ def sales_summary(start_date, end_date, label: str, branch: str | None = None) -
             SUM(ISNULL(VentaBruta, 0)) AS VentaBruta,
             SUM(ISNULL(DescuentoValor, 0)) AS DescuentoQ,
             SUM(ISNULL(CostoTotal, 0)) AS CostoTotal,
-            SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
+            SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
         WHERE {" AND ".join(filters)}
     """
@@ -42,7 +42,7 @@ def sales_summary(start_date, end_date, label: str, branch: str | None = None) -
     ticket = venta / facturas if facturas else 0
     upt = unidades / facturas if facturas else 0
     vr_unidad = venta / unidades if unidades else 0
-    margen_pct = margen / venta if venta else 0
+    margen_pct = margen / (venta / 1.12) if venta else 0
     answer = (
         f"**Ventas{' de ' + branch if branch else ''} {label} [{start_date}; {end_date}]**\n\n"
         f"1. **Venta Neta Q:** {money(venta)}\n\n"
@@ -86,7 +86,7 @@ def sales_by_branch(
             SUM(ISNULL(Unidades, 0)) AS Unidades,
             COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
             SUM(ISNULL(CostoTotal, 0)) AS CostoTotal,
-            SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
+            SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
         WHERE {" AND ".join(filters)}
         GROUP BY Sucursal
@@ -188,7 +188,7 @@ def sales_by_seller(
             SUM(ISNULL(VentaNetaQ, 0)) AS VentaNetaQ,
             SUM(ISNULL(Unidades, 0)) AS Unidades,
             COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
-            SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
+            SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
         WHERE {" AND ".join(filters)}
         GROUP BY Sucursal, Vendedor
@@ -220,7 +220,7 @@ def sales_by_seller(
         margen = _value(row, "MargenQ")
         ticket = venta / facturas if facturas else 0
         upt = unidades / facturas if facturas else 0
-        margen_pct = margen / venta if venta else 0
+        margen_pct = margen / (venta / 1.12) if venta else 0
         lines.append(
             f"\n{position}. **{row['Vendedor']}** | {row['Sucursal']}\n"
             f"   Venta {money(venta)} | Unid {number(unidades)} | Fact {number(facturas)} | "
@@ -405,7 +405,7 @@ def _sales_grouped(start_date, end_date, label: str, dimension: str, title: str,
             SUM(ISNULL(VentaNetaQ, 0)) AS VentaNetaQ,
             SUM(ISNULL(Unidades, 0)) AS Unidades,
             COUNT(DISTINCT CASE WHEN Trn = 'FV' THEN Numero END) AS Facturas,
-            SUM(ISNULL(VentaNetaQ, 0)) - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
+            SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(ISNULL(CostoTotal, 0)) AS MargenQ
         FROM {db.VIEW_VENTAS}
         WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
           AND Trn = 'FV'

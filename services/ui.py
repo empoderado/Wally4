@@ -26,6 +26,7 @@ def page_title(title: str, subtitle: str = "") -> None:
         )
     with right:
         if st.button("Actualizar", key=f"refresh_{title}", use_container_width=True):
+            db.clear_query_cache()
             st.rerun()
 
 

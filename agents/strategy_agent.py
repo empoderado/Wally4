@@ -134,7 +134,7 @@ def _sales_insights(df: pd.DataFrame) -> list[str]:
             lines.append(f"**Alerta:** {low[label_col]} queda al final en margen con {money(low[margen_col])}; revisar descuentos, costo y mezcla de producto.")
 
     if margen_col and venta_col and total_venta:
-        margen_pct = total_margen / total_venta
+        margen_pct = total_margen / (total_venta / 1.12)
         lines.append(f"**Rentabilidad:** el margen consolidado es {percent(margen_pct)}.")
 
     return lines

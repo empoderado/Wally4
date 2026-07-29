@@ -16,7 +16,7 @@ TRANSCRIPTION_PROMPT = (
     "La grabacion contiene una consulta en espanol sobre la aplicacion comercial Wally. "
     "Transcribe literalmente y conserva estos nombres propios y terminos: Mar-IA, Wally, "
     "Merchan, Jean, Bolsos, Basshert, Oakland, Chiquimula, Pradera, Majadas, Naranjo Mall, "
-    "Escuintla, Parque Las Americas, On-Line, asesora, vendedor, sucursal, embarque, "
+    "Escuintla, Parque Las Americas, On-Line, Videre, asesora, vendedor, sucursal, embarque, "
     "referencia, inventario, unidades, venta neta, ticket promedio, UPT y margen."
 )
 

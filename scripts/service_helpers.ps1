@@ -157,7 +157,7 @@ function Ensure-WallyAgentVenv {
     }
 
     & $venvPython -m pip install --upgrade pip
-    & (Join-Path $AppPath ".venv\Scripts\pip.exe") install -r (Join-Path $AppPath "requirements.txt")
+    & $venvPython -m pip install -r (Join-Path $AppPath "requirements.txt")
 }
 
 function Stop-WallyAgentProcess {

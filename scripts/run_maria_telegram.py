@@ -16,6 +16,7 @@ if str(APP_DIR) not in sys.path:
 from orchestration.maria_orchestrator import answer
 from services.local_store import init_store
 from services.maria_transcription import MAX_AUDIO_BYTES, transcribe_audio
+from services.maria_vision import transcribe_image
 from services.paths import LOGS_DIR, ensure_dirs
 from services.telegram import (
     TelegramConfig,
@@ -97,6 +98,27 @@ def transcribe_telegram_message(config: TelegramConfig, message: dict) -> str | 
         return transcribe_audio(audio_path, original_name)
 
 
+def process_telegram_image(config: TelegramConfig, message: dict) -> str | None:
+    photo = message.get("photo")
+    if not photo:
+        return None
+    photo_item = photo[-1]
+    file_id = str(photo_item.get("file_id", "")).strip()
+    if not file_id:
+        raise ValueError("Telegram no incluyo el identificador de la foto.")
+
+    caption = (message.get("caption") or "").strip()
+    with tempfile.TemporaryDirectory(prefix="maria_telegram_") as temp_dir:
+        image_path = Path(temp_dir) / "photo.jpg"
+        download_telegram_file(
+            config,
+            file_id,
+            image_path,
+            10 * 1024 * 1024,
+        )
+        return transcribe_image(image_path, caption=caption)
+
+
 def handle_message(config: TelegramConfig, message: dict) -> None:
     chat = message.get("chat", {})
     chat_id = chat.get("id")
@@ -134,16 +156,37 @@ def handle_message(config: TelegramConfig, message: dict) -> None:
             send_message(config, chat_id, "No pude reconocer palabras en el audio.")
             return
         send_message(config, chat_id, f"Entendi: {text}")
+    elif not text and message.get("photo"):
+        telegram_request(
+            config,
+            "sendChatAction",
+            {"chat_id": chat_id, "action": "typing"},
+            timeout=10,
+        )
+        try:
+            text = (process_telegram_image(config, message) or "").strip()
+        except Exception as exc:
+            logging.exception("No fue posible procesar la imagen del chat %s", chat_id)
+            send_message(
+                config,
+                chat_id,
+                "No pude analizar la imagen. Intenta enviando una foto mas clara.",
+            )
+            return
+        if not text:
+            send_message(config, chat_id, "No pude extraer informacion o referencias de la imagen.")
+            return
+        send_message(config, chat_id, f"Entendi de la imagen: {text}")
 
     if not text:
-        send_message(config, chat_id, "Puedo responder mensajes de texto, notas de voz y archivos de audio.")
+        send_message(config, chat_id, "Puedo responder mensajes de texto, notas de voz, archivos de audio e imagenes.")
         return
 
     if text.lower() in {"/start", "hola", "inicio"}:
         send_message(
             config,
             chat_id,
-            "Hola, soy Mar-IA Agent. Puedes enviarme texto o una nota de voz para consultar ventas, inventario, embarques, vendedores y referencias de Wally.",
+            "Hola, soy Mar-IA Agent. Puedes enviarme texto, una nota de voz o una imagen para consultar ventas, inventario, embarques, vendedores y referencias de Wally.",
         )
         return
 

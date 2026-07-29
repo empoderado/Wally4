@@ -18,6 +18,7 @@ DEFAULT_BRANCH_ORDER = [
     "MAJADAS",
     "NARANJO MALL",
     "ESCUINTLA",
+    "VIDERE",
     "ONLINE",
     "ON-LINE",
     "BASSHERT",

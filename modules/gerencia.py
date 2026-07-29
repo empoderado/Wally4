@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from datetime import date, datetime, timedelta
@@ -18,6 +18,9 @@ from services.executive_tables import (
     render_hourly_comparison_table,
     render_line_performance_table,
     render_shipment_summary_table,
+    render_branch_today_comparison_table,
+    render_shipment_summary_table_style_daily,
+    render_subline_performance_table,
 )
 from services.formatting import money, number, percent
 from services.local_store import connect, get_param
@@ -286,7 +289,7 @@ def _load_range_year_comparison(start_date: date, end_date: date) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
-def _load_branch_range_comparison(start_date: date, end_date: date) -> tuple[pd.DataFrame, dict[str, int]]:
+def _load_branch_range_comparison(start_date: date, end_date: date) -> tuple[pd.DataFrame, dict[str, int], int]:
     if start_date > end_date:
         start_date, end_date = end_date, start_date
     current_year = date.today().year
@@ -304,7 +307,7 @@ def _load_branch_range_comparison(start_date: date, end_date: date) -> tuple[pd.
 
     unique_dates = sorted(set(query_dates))
     if not unique_dates:
-        return pd.DataFrame(), year_map
+        return pd.DataFrame(), year_map, year_map["previous"]
 
     placeholders = ", ".join("?" for _ in unique_dates)
     raw = db.read_sql(
@@ -349,24 +352,154 @@ def _load_branch_range_comparison(start_date: date, end_date: date) -> tuple[pd.
         row["AnioAnteriorVentaNeta"] = values["previous"]["venta"]
         row["HoyUnid"] = values["current"]["unid"]
         row["HoyVentaNeta"] = values["current"]["venta"]
+
+        best_year = year_map["previous"]
+        best_total_sales = -1
+        for alias, year in [("hist_1", year_map["hist_1"]), ("hist_2", year_map["hist_2"]), ("previous", year_map["previous"])]:
+            found_year = raw[raw["Anio"] == year] if not raw.empty else pd.DataFrame()
+            total_sales = float(found_year["VentaNetaQ"].sum()) if not found_year.empty else 0.0
+            if total_sales > best_total_sales:
+                best_total_sales = total_sales
+                best_year = year
+
+        if best_year == year_map["hist_1"]:
+            best_unid = row["Historico2023Unid"]
+            best_venta = row["Historico2023VentaNeta"]
+        elif best_year == year_map["hist_2"]:
+            best_unid = row["Historico2024Unid"]
+            best_venta = row["Historico2024VentaNeta"]
+        else: # year_map["previous"]
+            best_unid = row["AnioAnteriorUnid"]
+            best_venta = row["AnioAnteriorVentaNeta"]
+
         row["VariacionUnidPct"] = (
-            ((row["HoyUnid"] - row["AnioAnteriorUnid"]) / row["AnioAnteriorUnid"]) * 100
-            if row["AnioAnteriorUnid"]
+            ((row["HoyUnid"] - best_unid) / best_unid) * 100
+            if best_unid
             else None
         )
         row["VariacionVentaPct"] = (
-            ((row["HoyVentaNeta"] - row["AnioAnteriorVentaNeta"]) / row["AnioAnteriorVentaNeta"]) * 100
-            if row["AnioAnteriorVentaNeta"]
+            ((row["HoyVentaNeta"] - best_venta) / best_venta) * 100
+            if best_venta
+            else None
+        )
+        rows.append(row)
+
+    result = pd.DataFrame(rows)
+    
+    best_year = year_map["previous"]
+    best_total_sales = -1
+    for alias, year in [("hist_1", year_map["hist_1"]), ("hist_2", year_map["hist_2"]), ("previous", year_map["previous"])]:
+        found_year = raw[raw["Anio"] == year] if not raw.empty else pd.DataFrame()
+        total_sales = float(found_year["VentaNetaQ"].sum()) if not found_year.empty else 0.0
+        if total_sales > best_total_sales:
+            best_total_sales = total_sales
+            best_year = year
+
+    if result.empty:
+        return result, year_map, best_year
+    result = result.sort_values(["HoyVentaNeta", "AnioAnteriorVentaNeta", "Sucursal"], ascending=[False, False, True]).reset_index(drop=True)
+    result.insert(0, "Ranking", range(1, len(result) + 1))
+    return result, year_map, best_year
+
+
+def _load_branch_today_comparison() -> tuple[pd.DataFrame, dict[str, int], int]:
+    today = date.today()
+    current_year = today.year
+    year_map = {
+        "current": current_year,
+        "previous": current_year - 1,
+        "hist_2": current_year - 2,
+        "hist_1": current_year - 3,
+    }
+    years = [year_map["hist_1"], year_map["hist_2"], year_map["previous"], year_map["current"]]
+    
+    query_dates = [_same_month_day(today, year) for year in years]
+    unique_dates = sorted(set(query_dates))
+    if not unique_dates:
+        return pd.DataFrame(), year_map, year_map["previous"]
+
+    placeholders = ", ".join("?" for _ in unique_dates)
+    raw = db.read_sql(
+        f"""
+        SELECT
+            YEAR(CAST(Fecha AS date)) AS Anio,
+            Sucursal,
+            SUM(ISNULL(Unidades, 0)) AS Unidades,
+            SUM(ISNULL(VentaNetaQ, 0)) AS VentaNetaQ
+        FROM {db.VIEW_VENTAS}
+        WHERE CAST(Fecha AS date) IN ({placeholders})
+        GROUP BY
+            YEAR(CAST(Fecha AS date)),
+            Sucursal
+        """,
+        tuple(day.strftime("%Y-%m-%d") for day in unique_dates),
+    )
+    for column in ["Anio", "Sucursal", "Unidades", "VentaNetaQ"]:
+        if column not in raw.columns:
+            raw[column] = "" if column == "Sucursal" else 0
+
+    branches = (
+        raw["Sucursal"].dropna().astype(str).str.strip().replace("", pd.NA).dropna().sort_values().unique().tolist()
+        if not raw.empty
+        else []
+    )
+    
+    best_year = year_map["previous"]
+    best_total_sales = -1
+    for alias, year in [("hist_1", year_map["hist_1"]), ("hist_2", year_map["hist_2"]), ("previous", year_map["previous"])]:
+        found_year = raw[raw["Anio"] == year] if not raw.empty else pd.DataFrame()
+        total_sales = float(found_year["VentaNetaQ"].sum()) if not found_year.empty else 0.0
+        if total_sales > best_total_sales:
+            best_total_sales = total_sales
+            best_year = year
+
+    rows = []
+    for branch in branches:
+        row = {"Sucursal": branch}
+        values = {}
+        for alias, year in year_map.items():
+            found = raw[(raw["Anio"] == year) & (raw["Sucursal"].astype(str).str.strip() == branch)] if not raw.empty else pd.DataFrame()
+            units = float(found["Unidades"].sum()) if not found.empty else 0
+            sales = float(found["VentaNetaQ"].sum()) if not found.empty else 0
+            values[alias] = {"unid": units, "venta": sales}
+
+        row["Historico2023Unid"] = values["hist_1"]["unid"]
+        row["Historico2023VentaNeta"] = values["hist_1"]["venta"]
+        row["Historico2024Unid"] = values["hist_2"]["unid"]
+        row["Historico2024VentaNeta"] = values["hist_2"]["venta"]
+        row["AnioAnteriorUnid"] = values["previous"]["unid"]
+        row["AnioAnteriorVentaNeta"] = values["previous"]["venta"]
+        row["HoyUnid"] = values["current"]["unid"]
+        row["HoyVentaNeta"] = values["current"]["venta"]
+        
+        if best_year == year_map["hist_1"]:
+            best_unid = row["Historico2023Unid"]
+            best_venta = row["Historico2023VentaNeta"]
+        elif best_year == year_map["hist_2"]:
+            best_unid = row["Historico2024Unid"]
+            best_venta = row["Historico2024VentaNeta"]
+        else: # year_map["previous"]
+            best_unid = row["AnioAnteriorUnid"]
+            best_venta = row["AnioAnteriorVentaNeta"]
+
+        row["VariacionUnidPct"] = (
+            ((row["HoyUnid"] - best_unid) / best_unid) * 100
+            if best_unid
+            else None
+        )
+        row["VariacionVentaPct"] = (
+            ((row["HoyVentaNeta"] - best_venta) / best_venta) * 100
+            if best_venta
             else None
         )
         rows.append(row)
 
     result = pd.DataFrame(rows)
     if result.empty:
-        return result, year_map
+        return result, year_map, best_year
     result = result.sort_values(["HoyVentaNeta", "AnioAnteriorVentaNeta", "Sucursal"], ascending=[False, False, True]).reset_index(drop=True)
     result.insert(0, "Ranking", range(1, len(result) + 1))
-    return result, year_map
+    return result, year_map, best_year
 
 
 def _load_recent_shipment_summary() -> pd.DataFrame:
@@ -374,7 +507,7 @@ def _load_recent_shipment_summary() -> pd.DataFrame:
         f"""
         WITH PrimerasEntradas AS
         (
-            SELECT TOP 15
+            SELECT TOP 20
                 CAST(CodEmbarqueAbreviado AS varchar(100)) COLLATE DATABASE_DEFAULT AS Embarque,
                 MIN(CAST(FechaEntrada AS date)) AS FechaPrimeraEntrada,
                 SUM(ISNULL(UnidadesEntrada, 0)) AS Entrada
@@ -382,6 +515,7 @@ def _load_recent_shipment_summary() -> pd.DataFrame:
             WHERE CodEmbarqueAbreviado IS NOT NULL
               AND LTRIM(RTRIM(CAST(CodEmbarqueAbreviado AS varchar(100)))) <> ''
             GROUP BY CodEmbarqueAbreviado
+            HAVING SUM(ISNULL(UnidadesEntrada, 0)) > 10
             ORDER BY MIN(CAST(FechaEntrada AS date)) DESC, CodEmbarqueAbreviado ASC
         ),
         Existencia AS
@@ -651,7 +785,167 @@ def _load_line_performance(start_date: date, end_date: date) -> pd.DataFrame:
     return data.sort_values(["VentaQ", "VentasUnidades", "Linea"], ascending=[False, False, True]).reset_index(drop=True)
 
 
-def _load_gerencia(selected_date: date, daily_start: date, daily_end: date) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int], dict[str, int], dict[str, int]]:
+def _load_subline_performance(start_date: date, end_date: date) -> pd.DataFrame:
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+    sales_line_expr = _line_group_expr(db.VIEW_VENTAS)
+
+    sales = db.read_sql(
+        f"""
+        SELECT
+            {sales_line_expr} AS Linea,
+            UPPER(LTRIM(RTRIM(CAST(DescSubLinea AS varchar(250))))) AS Sublinea,
+            SUM(
+                CASE
+                    WHEN Trn = 'FV' THEN ISNULL(Unidades, 0)
+                    WHEN Trn IN ('NC', 'NCC') THEN -ABS(ISNULL(Unidades, 0))
+                    ELSE 0
+                END
+            ) AS VentasUnidades,
+            SUM(
+                CASE
+                    WHEN Trn = 'FV' THEN ISNULL(VentaNetaQ, 0)
+                    WHEN Trn IN ('NC', 'NCC') THEN -ABS(ISNULL(VentaNetaQ, 0))
+                    ELSE 0
+                END
+            ) AS VentaQ
+        FROM {db.VIEW_VENTAS}
+        WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
+          AND Trn IN ('FV', 'NC', 'NCC')
+          AND {sales_line_expr} <> ''
+          AND DescSubLinea IS NOT NULL AND LTRIM(RTRIM(CAST(DescSubLinea AS varchar(250)))) <> ''
+        GROUP BY {sales_line_expr}, UPPER(LTRIM(RTRIM(CAST(DescSubLinea AS varchar(250)))))
+        """,
+        db.date_params(start_date, end_date),
+    )
+    stock = db.read_sql(
+        f"""
+        SELECT
+            UPPER(LTRIM(RTRIM(CAST(Linea AS varchar(250))))) AS LineaOriginal,
+            UPPER(LTRIM(RTRIM(CAST(DescSubLinea AS varchar(250))))) AS Sublinea,
+            SUM(ISNULL(ExistenciaFisica, 0)) AS StockUnidades
+        FROM {db.VIEW_EXISTENCIA}
+        WHERE Linea IS NOT NULL AND LTRIM(RTRIM(CAST(Linea AS varchar(250)))) <> ''
+          AND DescSubLinea IS NOT NULL AND LTRIM(RTRIM(CAST(DescSubLinea AS varchar(250)))) <> ''
+        GROUP BY UPPER(LTRIM(RTRIM(CAST(Linea AS varchar(250))))), UPPER(LTRIM(RTRIM(CAST(DescSubLinea AS varchar(250)))))
+        """
+    )
+    group_map = _line_group_mapping(start_date, end_date)
+    if not stock.empty and "LineaOriginal" in stock.columns:
+        stock["Linea"] = (
+            stock["LineaOriginal"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .map(lambda value: group_map.get(value, value))
+        )
+        stock = stock.groupby(["Linea", "Sublinea"], as_index=False).agg(StockUnidades=("StockUnidades", "sum"))
+
+    for frame, defaults in [
+        (sales, {"Linea": "", "Sublinea": "", "VentasUnidades": 0, "VentaQ": 0}),
+        (stock, {"Linea": "", "Sublinea": "", "StockUnidades": 0}),
+    ]:
+        for column, default in defaults.items():
+            if column not in frame.columns:
+                frame[column] = default
+
+    keys_sales = sales[["Linea", "Sublinea"]].drop_duplicates()
+    keys_stock = stock[["Linea", "Sublinea"]].drop_duplicates()
+    combined_keys = pd.concat([keys_sales, keys_stock]).drop_duplicates().reset_index(drop=True)
+    combined_keys = combined_keys[combined_keys["Linea"].str.strip() != ""]
+    combined_keys = combined_keys[combined_keys["Sublinea"].str.strip() != ""]
+
+    if combined_keys.empty:
+        return pd.DataFrame()
+
+    data = (
+        combined_keys
+        .merge(stock, on=["Linea", "Sublinea"], how="left")
+        .merge(sales, on=["Linea", "Sublinea"], how="left")
+        .fillna(0)
+    )
+
+    total_sale = float(data["VentaQ"].sum())
+    exchange_rate = float(get_param("tipo_cambio_usd", "7.8") or 7.8)
+    if exchange_rate <= 0:
+        exchange_rate = 7.8
+    data["VentaDolar"] = data["VentaQ"] / exchange_rate
+    data["PorcVenta"] = data["VentaQ"].map(lambda value: (float(value) / total_sale * 100) if total_sale else 0)
+
+    # Filter to exactly Blusas, Jeans, Faldas, Vestidos
+    allowed_lines = {"BLUSAS", "JEANS", "FALDAS", "VESTIDOS"}
+    data = data[data["Linea"].str.upper().isin(allowed_lines)].copy()
+
+    # Sort lines by total stock descending, and sublines by stock units descending
+    line_totals = data.groupby("Linea")["StockUnidades"].sum().reset_index()
+    line_stock_map = dict(zip(line_totals["Linea"], line_totals["StockUnidades"]))
+    data["LineaTotalStock"] = data["Linea"].map(line_stock_map)
+    data = data.sort_values(
+        by=["LineaTotalStock", "Linea", "StockUnidades", "Sublinea"],
+        ascending=[False, True, False, True]
+    ).drop(columns=["LineaTotalStock"]).reset_index(drop=True)
+
+    # Load budget mapping by line for subtotals
+    budget = _read_line_branch_budget(start_date, end_date)
+    if not budget.empty:
+        budget["Linea"] = budget["Linea"].map(lambda value: _normalize_budget_line(value, group_map))
+        budget_grouped = budget.groupby("Linea", as_index=False).agg(
+            PresupuestoUnidades=("PresupuestoUnidades", "sum"),
+            PresupuestoVenta=("PresupuestoVenta", "sum")
+        )
+        line_budget_map = {row["Linea"]: (row["PresupuestoUnidades"], row["PresupuestoVenta"]) for _, row in budget_grouped.iterrows()}
+    else:
+        line_budget_map = {}
+
+    # Insert subtotal rows by line
+    final_rows = []
+    for line in data["Linea"].unique():
+        line_data = data[data["Linea"] == line]
+        
+        # Append subline rows
+        for _, row in line_data.iterrows():
+            row_dict = row.to_dict()
+            row_dict["PresupuestoUnidades"] = 0
+            row_dict["PresupuestoVenta"] = 0
+            row_dict["CumplUnidades"] = None
+            row_dict["CumplVenta"] = None
+            final_rows.append(row_dict)
+            
+        # Calculate and append subtotal row
+        sub_units_pres = 0
+        sub_venta_pres = 0
+        if line in line_budget_map:
+            sub_units_pres, sub_venta_pres = line_budget_map[line]
+            
+        sub_ventas_unidades = line_data["VentasUnidades"].sum()
+        sub_venta_q = line_data["VentaQ"].sum()
+        
+        sub_cumpl_unid = (sub_ventas_unidades / sub_units_pres * 100) if sub_units_pres else None
+        sub_cumpl_venta = (sub_venta_q / sub_venta_pres * 100) if sub_venta_pres else None
+        
+        final_rows.append({
+            "Linea": line,
+            "Sublinea": "Subtotal",
+            "StockUnidades": line_data["StockUnidades"].sum(),
+            "VentasUnidades": sub_ventas_unidades,
+            "VentaQ": sub_venta_q,
+            "VentaDolar": line_data["VentaDolar"].sum(),
+            "PorcVenta": line_data["PorcVenta"].sum(),
+            "PresupuestoUnidades": sub_units_pres,
+            "PresupuestoVenta": sub_venta_pres,
+            "CumplUnidades": sub_cumpl_unid,
+            "CumplVenta": sub_cumpl_venta
+        })
+        
+    if final_rows:
+        data = pd.DataFrame(final_rows)
+    else:
+        data = pd.DataFrame(columns=data.columns)
+
+    return data
+
+
+def _load_gerencia(selected_date: date, daily_start: date, daily_end: date) -> tuple:
     target_dates = _comparison_dates(selected_date)
     params = tuple(day.strftime("%Y-%m-%d") for day in target_dates)
     placeholders = ", ".join("?" for _ in target_dates)
@@ -664,7 +958,7 @@ def _load_gerencia(selected_date: date, daily_start: date, daily_end: date) -> t
             SUM(VentaBruta) AS VentaBruta,
             SUM(DescuentoValor) AS DescuentoQ,
             SUM(CostoTotal) AS CostoTotal,
-            SUM(ISNULL(VentaNetaQ, 0)) - SUM(CostoTotal) AS MargenQ
+            SUM(ISNULL(VentaNetaQ, 0)) / 1.12 - SUM(CostoTotal) AS MargenQ
         FROM {db.VIEW_VENTAS}
         WHERE Fecha >= ? AND Fecha < DATEADD(day, 1, ?)
         """,
@@ -700,10 +994,27 @@ def _load_gerencia(selected_date: date, daily_start: date, daily_end: date) -> t
     hourly, years = _load_hourly_comparison(selected_date)
     daily, daily_years = _load_daily_comparison(daily_start, daily_end)
     range_comparison = _load_range_year_comparison(daily_start, daily_end)
-    branch_range_comparison, branch_range_years = _load_branch_range_comparison(daily_start, daily_end)
+    branch_range_comparison, branch_range_years, branch_range_best_year = _load_branch_range_comparison(daily_start, daily_end)
     line_performance = _load_line_performance(daily_start, daily_end)
     shipment_summary = _load_recent_shipment_summary()
-    return summary, comparison, range_comparison, branch_range_comparison, line_performance, shipment_summary, hourly, daily, years, daily_years, branch_range_years
+    today_comparison, today_years, today_best_year = _load_branch_today_comparison()
+    return (
+        summary,
+        comparison,
+        range_comparison,
+        branch_range_comparison,
+        branch_range_years,
+        branch_range_best_year,
+        line_performance,
+        shipment_summary,
+        hourly,
+        daily,
+        years,
+        daily_years,
+        today_comparison,
+        today_years,
+        today_best_year,
+    )
 
 
 def render() -> None:
@@ -732,11 +1043,30 @@ def render() -> None:
     else:
         with filter_cols[2]:
             daily_start = st.date_input("Fecha inicio", value=today.replace(day=1), key="gerencia_daily_start")
+
+
+
         with filter_cols[3]:
             daily_end = st.date_input("Fecha fin", value=today, key="gerencia_daily_end")
 
     try:
-        summary, comparison, range_comparison, branch_range_comparison, line_performance, shipment_summary, hourly, daily, years, daily_years, branch_range_years = _load_gerencia(selected_date, daily_start, daily_end)
+        (
+            summary,
+            comparison,
+            range_comparison,
+            branch_range_comparison,
+            branch_range_years,
+            branch_range_best_year,
+            line_performance,
+            shipment_summary,
+            hourly,
+            daily,
+            years,
+            daily_years,
+            today_comparison,
+            today_years,
+            today_best_year,
+        ) = _load_gerencia(selected_date, daily_start, daily_end)
     except Exception as exc:
         st.error("No se pudo cargar la pagina de gerencia.")
         st.exception(exc)
@@ -750,12 +1080,14 @@ def render() -> None:
     venta = float(row["VentaNetaQ"] or 0)
     unidades = float(row["Unidades"] or 0)
     facturas = float(row["Facturas"] or 0)
-    margen = float(row["MargenQ"] or 0)
+    margen_sin_iva = float(row["MargenQ"] or 0)
+    costo = float(row.get("CostoTotal", 0) or 0)
+    margen_con_iva = venta - costo
     ticket = venta / facturas if facturas else 0
     upt = unidades / facturas if facturas else 0
     vr_unidad = venta / unidades if unidades else 0
 
-    cols = st.columns(7)
+    cols = st.columns(8)
     with cols[0]:
         metric_card("Venta Neta Q", money(venta))
     with cols[1]:
@@ -769,26 +1101,29 @@ def render() -> None:
     with cols[5]:
         metric_card("Vr Unidad Prom.", money(vr_unidad))
     with cols[6]:
-        metric_card("Margen", money(margen), percent(margen / venta if venta else 0), positive=margen >= 0)
+        metric_card("Marge Con IVA", money(margen_con_iva), percent(margen_con_iva / venta if venta else 0), positive=margen_con_iva >= 0)
+    with cols[7]:
+        metric_card("Margen sin IVA", money(margen_sin_iva), percent(margen_sin_iva / (venta / 1.12) if venta else 0), positive=margen_sin_iva >= 0)
     code_footer(*get_code("gerencia", "report"))
 
-    top_tables = st.columns([2.2, 0.08, 1.05], gap="small")
+    top_tables = st.columns([1.2, 2.8], gap="medium")
     with top_tables[0]:
-        section_title("Analisis de Desempeno Comercial por Linea")
-        render_line_performance_table(line_performance)
-        code_footer(*get_code("gerencia", "line_performance"))
-    with top_tables[1]:
-        st.markdown("&nbsp;", unsafe_allow_html=True)
-    with top_tables[2]:
         section_title("Comparativo ultimos 4 anios")
         table = comparison.copy()
         table["Fecha"] = pd.to_datetime(table["Fecha"]).dt.date
         display_compact_table(table, show_total=False)
         code_footer(*get_code("gerencia", "year_table"))
+    with top_tables[1]:
+        st.markdown("&nbsp;", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    section_title("Comparativo dia actual vs anios anteriores")
+    render_branch_today_comparison_table(today_comparison, today_years, today_best_year)
+    code_footer(*get_code("gerencia", "today_comparison_table"))
 
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
     section_title("Comparativo 4 anios rango fecha")
-    render_branch_range_comparison_table(branch_range_comparison, branch_range_years)
+    render_branch_range_comparison_table(branch_range_comparison, branch_range_years, branch_range_best_year)
     code_footer(*get_code("gerencia", "range_year_table"))
 
     section_title("Tendencia de Facturacion por Hora")
@@ -853,3 +1188,106 @@ def render() -> None:
         file_name=export_filename("wally_gerencia"),
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+def render_producto() -> None:
+    today = date.today()
+    filter_cols = st.columns([1, 1.35, 1, 1])
+    with filter_cols[0]:
+        selected_date = st.date_input(
+            "Fecha analisis",
+            value=_default_business_date(),
+            key="gerencia_prod_fecha_analisis",
+        )
+    with filter_cols[1]:
+        daily_mode = st.radio(
+            "Rango tabla diaria",
+            ["Mes actual automatico", "Rango personalizado"],
+            horizontal=True,
+            key="gerencia_prod_daily_mode",
+        )
+    if daily_mode == "Mes actual automatico":
+        daily_start = today.replace(day=1)
+        daily_end = today
+        with filter_cols[2]:
+            st.date_input("Fecha inicio", value=daily_start, key="gerencia_prod_auto_daily_start", disabled=True)
+        with filter_cols[3]:
+            st.date_input("Fecha fin", value=daily_end, key="gerencia_prod_auto_daily_end", disabled=True)
+    else:
+        with filter_cols[2]:
+            daily_start = st.date_input("Fecha inicio", value=today.replace(day=1), key="gerencia_prod_daily_start")
+        with filter_cols[3]:
+            daily_end = st.date_input("Fecha fin", value=today, key="gerencia_prod_daily_end")
+
+    try:
+        (
+            summary,
+            comparison,
+            range_comparison,
+            branch_range_comparison,
+            branch_range_years,
+            branch_range_best_year,
+            line_performance,
+            shipment_summary,
+            hourly,
+            daily,
+            years,
+            daily_years,
+            today_comparison,
+            today_years,
+            today_best_year,
+        ) = _load_gerencia(selected_date, daily_start, daily_end)
+    except Exception as exc:
+        st.error("No se pudo cargar la pagina de gerencia producto.")
+        st.exception(exc)
+        return
+
+    if summary.empty:
+        warning_box("No hay datos para la fecha seleccionada.")
+        return
+
+    row = summary.iloc[0].fillna(0)
+    venta = float(row["VentaNetaQ"] or 0)
+    unidades = float(row["Unidades"] or 0)
+    facturas = float(row["Facturas"] or 0)
+    margen_sin_iva = float(row["MargenQ"] or 0)
+    costo = float(row.get("CostoTotal", 0) or 0)
+    margen_con_iva = venta - costo
+    ticket = venta / facturas if facturas else 0
+    upt = unidades / facturas if facturas else 0
+    vr_unidad = venta / unidades if unidades else 0
+
+    cols = st.columns(8)
+    with cols[0]:
+        metric_card("Venta Neta Q", money(venta))
+    with cols[1]:
+        metric_card("Unidades", number(unidades))
+    with cols[2]:
+        metric_card("Facturas", number(facturas))
+    with cols[3]:
+        metric_card("Ticket Promedio", money(ticket))
+    with cols[4]:
+        metric_card("UPT", number(upt, 2))
+    with cols[5]:
+        metric_card("Vr Unidad Prom.", money(vr_unidad))
+    with cols[6]:
+        metric_card("Marge Con IVA", money(margen_con_iva), percent(margen_con_iva / venta if venta else 0), positive=margen_con_iva >= 0)
+    with cols[7]:
+        metric_card("Margen sin IVA", money(margen_sin_iva), percent(margen_sin_iva / (venta / 1.12) if venta else 0), positive=margen_sin_iva >= 0)
+    code_footer(*get_code("gerencia", "report"))
+
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    section_title("Analisis de Desempeno Comercial por Linea")
+    render_line_performance_table(line_performance)
+    code_footer(*get_code("gerencia", "line_performance"))
+
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    section_title("Analisis de Desempeno Comercial por Linea y Sublinea")
+    subline_performance = _load_subline_performance(daily_start, daily_end)
+    render_subline_performance_table(subline_performance)
+    code_footer(*get_code("gerencia", "subline_performance"))
+
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    section_title("Rotacion por embarque")
+    render_shipment_summary_table_style_daily(shipment_summary)
+    code_footer(*get_code("existencias", "shipment_table"))

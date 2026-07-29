@@ -278,6 +278,7 @@ def _extract_branch_memory(normalized: str) -> str | None:
         "naranjo": "NARANJO MALL",
         "naranjo mall": "NARANJO MALL",
         "escuintla": "ESCUINTLA",
+        "videre": "VIDERE",
         "online": "ON-LINE",
         "on-line": "ON-LINE",
         "basshert": "BASSHERT",

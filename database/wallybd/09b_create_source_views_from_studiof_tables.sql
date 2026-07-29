@@ -348,8 +348,11 @@ WITH VentasFV AS
         v.Vendedor COLLATE DATABASE_DEFAULT AS Vendedor,
         ISNULL(v.Unidades, 0) AS Unidades,
         ISNULL(v.VentaNetaQ, 0) AS VentaNetaQ,
-        ISNULL(v.DescuentoPct, 0) AS DescuentoPct
-    FROM Source.VwFacturaConImpuesto AS v
+        ISNULL(v.DescuentoPct, 0) AS DescuentoPct,
+        v.Linea COLLATE DATABASE_DEFAULT AS Linea,
+        v.DescripTipoPrenda COLLATE DATABASE_DEFAULT AS DescripTipoPrenda,
+        v.Talla COLLATE DATABASE_DEFAULT AS Talla
+    FROM Mirror.FacturaConImpuesto AS v
     LEFT JOIN StudioF.dbo.Cliente AS c
         ON CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT = CAST(c.IDT AS varchar(50)) COLLATE DATABASE_DEFAULT
     LEFT JOIN StudioF.dbo.Departamento AS d ON c.idDepartamento = d.idDepartamento
@@ -395,7 +398,12 @@ TotalesCliente AS
         SUM(CASE WHEN DescuentoPct > 0.20 THEN Unidades ELSE 0 END) AS UnidadesPromocion,
         SUM(CASE WHEN DescuentoPct <= 0.20 THEN VentaNetaQ ELSE 0 END) AS VentaFullPrecio,
         SUM(CASE WHEN DescuentoPct > 0.20 THEN VentaNetaQ ELSE 0 END) AS VentaPromocion,
-        MAX(FechaDocumento) AS FechaUltimaCompra
+        MAX(FechaDocumento) AS FechaUltimaCompra,
+        CAST(ISNULL(SUM(CASE WHEN UPPER(Linea) = 'BLUSA' THEN Unidades ELSE 0 END), 0) AS int) AS Blusas,
+        CAST(ISNULL(SUM(CASE WHEN UPPER(Linea) = 'JEAN' THEN Unidades ELSE 0 END), 0) AS int) AS Jeans,
+        CAST(ISNULL(SUM(CASE WHEN UPPER(Linea) = 'VESTIDO' THEN Unidades ELSE 0 END), 0) AS int) AS Vestidos,
+        CAST(ISNULL(SUM(CASE WHEN UPPER(Linea) = 'PANTALON' THEN Unidades ELSE 0 END), 0) AS int) AS Pantalones,
+        CAST(ISNULL(SUM(CASE WHEN UPPER(Linea) NOT IN ('BLUSA', 'JEAN', 'VESTIDO', 'PANTALON') THEN Unidades ELSE 0 END), 0) AS int) AS Otros
     FROM ClientesConTelefono
     GROUP BY NitDpi
 ),
@@ -439,6 +447,87 @@ UltimaFactura AS
         ) AS rn
     FROM ClientesConTelefono
 ),
+TallaFrecuenteBlusa AS
+(
+    SELECT
+        CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT AS NitDpi,
+        v.Talla AS TallaBlusa,
+        ROW_NUMBER() OVER (
+            PARTITION BY CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT
+            ORDER BY SUM(v.Unidades) DESC, v.Talla ASC
+        ) AS rn
+    FROM Mirror.FacturaConImpuesto AS v
+    WHERE v.Trn = 'FV'
+      AND UPPER(v.Linea) = 'BLUSA'
+      AND v.Talla IS NOT NULL 
+      AND v.Talla <> ''
+      AND v.Cuenta IS NOT NULL
+      AND LTRIM(RTRIM(CAST(v.Cuenta AS varchar(50)))) <> ''
+      AND v.Cliente IS NOT NULL
+      AND UPPER(LTRIM(RTRIM(CAST(v.Cliente AS varchar(250))))) COLLATE DATABASE_DEFAULT NOT IN
+      (
+          'CONSUMIDOR FINAL',
+          'CLIENTE GENERAL',
+          'SIN NOMBRE',
+          'CF',
+          'C/F'
+      )
+    GROUP BY CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT, v.Talla
+),
+TallaFrecuenteJean AS
+(
+    SELECT
+        CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT AS NitDpi,
+        v.Talla AS TallaJean,
+        ROW_NUMBER() OVER (
+            PARTITION BY CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT
+            ORDER BY SUM(v.Unidades) DESC, v.Talla ASC
+        ) AS rn
+    FROM Mirror.FacturaConImpuesto AS v
+    WHERE v.Trn = 'FV'
+      AND UPPER(v.Linea) = 'JEAN'
+      AND v.Talla IS NOT NULL 
+      AND v.Talla <> ''
+      AND v.Cuenta IS NOT NULL
+      AND LTRIM(RTRIM(CAST(v.Cuenta AS varchar(50)))) <> ''
+      AND v.Cliente IS NOT NULL
+      AND UPPER(LTRIM(RTRIM(CAST(v.Cliente AS varchar(250))))) COLLATE DATABASE_DEFAULT NOT IN
+      (
+          'CONSUMIDOR FINAL',
+          'CLIENTE GENERAL',
+          'SIN NOMBRE',
+          'CF',
+          'C/F'
+      )
+    GROUP BY CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT, v.Talla
+),
+TallaFrecuenteCalzado AS
+(
+    SELECT
+        CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT AS NitDpi,
+        v.Talla AS TallaCalzado,
+        ROW_NUMBER() OVER (
+            PARTITION BY CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT
+            ORDER BY SUM(v.Unidades) DESC, v.Talla ASC
+        ) AS rn
+    FROM Mirror.FacturaConImpuesto AS v
+    WHERE v.Trn = 'FV'
+      AND UPPER(v.DescripTipoPrenda) = 'CALZADO'
+      AND v.Talla IS NOT NULL 
+      AND v.Talla <> ''
+      AND v.Cuenta IS NOT NULL
+      AND LTRIM(RTRIM(CAST(v.Cuenta AS varchar(50)))) <> ''
+      AND v.Cliente IS NOT NULL
+      AND UPPER(LTRIM(RTRIM(CAST(v.Cliente AS varchar(250))))) COLLATE DATABASE_DEFAULT NOT IN
+      (
+          'CONSUMIDOR FINAL',
+          'CLIENTE GENERAL',
+          'SIN NOMBRE',
+          'CF',
+          'C/F'
+      )
+    GROUP BY CAST(v.Cuenta AS varchar(50)) COLLATE DATABASE_DEFAULT, v.Talla
+),
 Resumen AS
 (
     SELECT
@@ -465,10 +554,21 @@ Resumen AS
         tc.UnidadesFullPrecio,
         tc.UnidadesPromocion,
         tc.VentaFullPrecio,
-        tc.VentaPromocion
+        tc.VentaPromocion,
+        tc.Blusas,
+        tc.Jeans,
+        tc.Vestidos,
+        tc.Pantalones,
+        tc.Otros,
+        tfb.TallaBlusa,
+        tfj.TallaJean,
+        tfc.TallaCalzado
     FROM TotalesCliente AS tc
     INNER JOIN SucursalPreferida AS sp ON tc.NitDpi = sp.NitDpi AND sp.rn = 1
     INNER JOIN UltimaFactura AS uf ON tc.NitDpi = uf.NitDpi AND uf.rn = 1
+    LEFT JOIN TallaFrecuenteBlusa AS tfb ON tc.NitDpi = tfb.NitDpi AND tfb.rn = 1
+    LEFT JOIN TallaFrecuenteJean AS tfj ON tc.NitDpi = tfj.NitDpi AND tfj.rn = 1
+    LEFT JOIN TallaFrecuenteCalzado AS tfc ON tc.NitDpi = tfc.NitDpi AND tfc.rn = 1
 )
 SELECT
     ROW_NUMBER() OVER (ORDER BY DiasSinCompra DESC, VentaNetaTotal DESC, Cliente ASC) AS NumeroCliente,
@@ -503,7 +603,15 @@ SELECT
     VentaFullPrecio,
     VentaPromocion,
     CASE WHEN UnidadesTotales = 0 THEN 0 ELSE CAST(UnidadesFullPrecio AS decimal(18, 4)) / NULLIF(UnidadesTotales, 0) END AS PorcentajeFullPrecio,
-    CASE WHEN UnidadesTotales = 0 THEN 0 ELSE CAST(UnidadesPromocion AS decimal(18, 4)) / NULLIF(UnidadesTotales, 0) END AS PorcentajePromocion
+    CASE WHEN UnidadesTotales = 0 THEN 0 ELSE CAST(UnidadesPromocion AS decimal(18, 4)) / NULLIF(UnidadesTotales, 0) END AS PorcentajePromocion,
+    Blusas,
+    Jeans,
+    Vestidos,
+    Pantalones,
+    Otros,
+    TallaBlusa,
+    TallaJean,
+    TallaCalzado
 FROM Resumen
 WHERE DiasSinCompra >= 1;
 GO

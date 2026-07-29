@@ -16,6 +16,7 @@ KNOWN_BRANCHES = {
     "naranjo": "NARANJO MALL",
     "naranjo mall": "NARANJO MALL",
     "escuintla": "ESCUINTLA",
+    "videre": "VIDERE",
     "online": "ON-LINE",
     "on-line": "ON-LINE",
     "basshert": "BASSHERT",
