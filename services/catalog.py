@@ -66,6 +66,7 @@ REPORT_CODES = {
         "import_branch": ("F-PTO-01", "Importar presupuesto por sucursal"),
         "import_seller": ("F-PTO-02", "Importar presupuesto por vendedor"),
         "import_line_branch": ("F-PTO-03", "Importar presupuesto por linea y sucursal"),
+        "modify_seller": ("F-PTO-04", "Modificar presupuesto de Asesora"),
         "branch_summary": ("T-PTO-00", "Resumen de presupuesto por sucursal"),
         "branch_matrix": ("T-PTO-01", "Presupuesto de sucursales por dia"),
         "branch_units_matrix": ("T-PTO-02", "Presupuesto de sucursales por dia en unidades"),

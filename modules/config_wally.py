@@ -644,7 +644,7 @@ def _render_colaboradores_turnos() -> None:
             st.session_state["selected_colab_code_state"] = selected_codigo
 
     st.markdown("---")
-    st.write("### Asignar o Cambiar Turno")
+    st.write("### Asignar o Cambiar Turno y Estado")
 
     colab_options = []
     for _, row in df_filtered.iterrows():
@@ -655,10 +655,27 @@ def _render_colaboradores_turnos() -> None:
         colab_options.append((cod, f"{name} (Código: {cod} - Puesto: {cargo} - {status_label})"))
 
     if not colab_options:
-        st.warning("No hay colaboradores disponibles para asignar turnos.")
+        st.warning("No hay colaboradores disponibles para asignar turnos o cambiar estado.")
         return
 
     colab_ids = [opt[0] for opt in colab_options]
+
+    col_search, col_select = st.columns([0.35, 0.65])
+    with col_search:
+        search_code = st.text_input(
+            "🔍 Buscar por código de asesor",
+            placeholder="Ej: 94, 95...",
+            key="colab_search_code_input"
+        )
+        if search_code.strip():
+            clean_search = search_code.strip()
+            matched_search = df[df["CODIGO"].astype(str).str.strip() == clean_search]
+            if not matched_search.empty:
+                found_code = int(matched_search.iloc[0]["CODIGO"])
+                st.session_state["selected_colab_code_state"] = found_code
+                st.caption(f"✓ Encontrado: {matched_search.iloc[0]['Nombre']}")
+            else:
+                st.caption("⚠️ No se encontró colaborador con ese código.")
 
     # Calculate default select index based on selection state
     default_colab_id = st.session_state.get("selected_colab_code_state")
@@ -667,37 +684,53 @@ def _render_colaboradores_turnos() -> None:
     else:
         default_select_idx = 0
 
-    colab_selected = st.selectbox(
-        "Seleccione el colaborador",
-        options=colab_ids,
-        index=default_select_idx,
-        format_func=lambda x: next(opt[1] for opt in colab_options if opt[0] == x),
-        key="selected_colab_turno_box"
-    )
-    st.session_state["selected_colab_code_state"] = colab_selected
+    with col_select:
+        colab_selected = st.selectbox(
+            "Seleccione el colaborador",
+            options=colab_ids,
+            index=default_select_idx,
+            format_func=lambda x: next(opt[1] for opt in colab_options if opt[0] == x),
+            key="selected_colab_turno_box"
+        )
+        st.session_state["selected_colab_code_state"] = colab_selected
 
     current_turno = "Diurno"
+    current_activo = True
     matched = df[df["CODIGO"] == colab_selected]
     if not matched.empty:
         current_turno = str(matched.iloc[0]["Turno"])
+        current_activo = bool(matched.iloc[0]["Activo"])
 
     turno_options = ["Diurno", "Mixto", "Completo", "Nocturno"]
     default_idx = turno_options.index(current_turno) if current_turno in turno_options else 0
 
-    new_turno = st.selectbox(
-        "Turno de trabajo",
-        options=turno_options,
-        index=default_idx,
-        key="new_colab_turno"
-    )
+    col_t, col_e = st.columns(2)
+    with col_t:
+        new_turno = st.selectbox(
+            "Turno de trabajo",
+            options=turno_options,
+            index=default_idx,
+            key="new_colab_turno"
+        )
+    with col_e:
+        estado_options = ["Activo", "Inactivo"]
+        default_est_idx = 0 if current_activo else 1
+        new_estado = st.selectbox(
+            "Estado del colaborador",
+            options=estado_options,
+            index=default_est_idx,
+            key="new_colab_estado"
+        )
 
-    if st.button("Guardar Turno", use_container_width=True):
+    if st.button("Guardar Cambios de Colaborador", use_container_width=True):
         try:
+            is_active = (new_estado == "Activo")
             db.save_colaborador_turno(colab_selected, new_turno)
-            st.success(f"Turno '{new_turno}' guardado exitosamente.")
+            db.save_colaborador_estado(colab_selected, is_active)
+            st.success(f"Turno '{new_turno}' y Estado '{new_estado}' guardados exitosamente.")
             st.rerun()
         except Exception as exc:
-            st.error(f"Error al guardar turno: {exc}")
+            st.error(f"Error al guardar cambios: {exc}")
 
     # Code footer
     st.markdown("---")

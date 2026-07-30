@@ -209,6 +209,21 @@ def save_colaborador_turno(id_empleado: int, turno: str) -> None:
     clear_query_cache()
 
 
+def save_colaborador_estado(id_empleado: int, activo: bool) -> None:
+    if use_mock_data():
+        return
+    query = "UPDATE StudioF.dbo.Empleado SET FlagStatus = ? WHERE idEmpleado = ?"
+    flag_val = 1 if activo else 0
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(query, (flag_val, id_empleado))
+        conn.commit()
+    finally:
+        conn.close()
+    clear_query_cache()
+
+
 def is_safe_select(query: str) -> bool:
     normalized = " ".join(query.strip().lower().split())
     forbidden = [" insert ", " update ", " delete ", " drop ", " alter ", " exec ", " execute ", " merge ", " truncate "]

@@ -974,6 +974,13 @@ def _import_tab(kind: str) -> None:
         key_cols = ["idVendedor", "idSucursal", "fecha"]
         code = get_code("presupuesto", "import_seller")
         title = "Importar presupuesto por vendedor"
+    elif kind == "modify_seller":
+        required = SELLER_REQUIRED
+        upload_required = SELLER_UPLOAD_COLUMNS
+        numeric_cols = ["unidades", "vrPresupuesto"]
+        key_cols = ["idVendedor", "idSucursal", "fecha"]
+        code = get_code("presupuesto", "modify_seller")
+        title = "Modificar presupuesto de Asesora"
     else:
         required = LINE_BRANCH_REQUIRED
         upload_required = LINE_BRANCH_UPLOAD_COLUMNS
@@ -983,10 +990,12 @@ def _import_tab(kind: str) -> None:
         title = "Importar Linea Sucursal"
 
     section_title(title)
+    if kind == "modify_seller":
+        st.caption("Modifica o actualiza el presupuesto de los asesores/vendedores especificados en el archivo Excel. Los datos de los demas asesores no incluidos en el archivo se conservaran sin cambios.")
     uploaded = st.file_uploader("Archivo Excel", type=["xlsx", "xls"], key=f"pto_upload_{kind}")
     overwrite = st.checkbox("Sobrescribir registros existentes", value=True, key=f"pto_overwrite_{kind}")
     if not uploaded:
-        if kind in {"seller", "line_branch"}:
+        if kind in {"seller", "modify_seller", "line_branch"}:
             st.caption("Columnas obligatorias en este orden: " + ", ".join(upload_required))
         else:
             st.caption("Columnas obligatorias: " + ", ".join(required))
@@ -1000,7 +1009,7 @@ def _import_tab(kind: str) -> None:
         code_footer(*code)
         return
 
-    if kind == "seller":
+    if kind in {"seller", "modify_seller"}:
         valid, errors = _validate_seller_budget_frame(raw)
     elif kind == "line_branch":
         valid, errors = _validate_line_branch_budget_frame(raw)
@@ -1016,19 +1025,27 @@ def _import_tab(kind: str) -> None:
     if not errors.empty:
         st.caption("Errores detectados")
         st.dataframe(errors, use_container_width=True, hide_index=True)
-    if st.button("Confirmar carga", key=f"pto_confirm_{kind}", disabled=valid.empty):
+
+    btn_label = "Confirmar modificacion de asesora(s)" if kind == "modify_seller" else "Confirmar carga"
+    if st.button(btn_label, key=f"pto_confirm_{kind}", disabled=valid.empty):
         if kind == "branch":
             inserted, updated, write_errors = _upsert_branch_budget(valid, overwrite)
             tipo = "SUCURSAL"
         elif kind == "seller":
             inserted, updated, write_errors = _upsert_seller_budget(valid, overwrite)
             tipo = "VENDEDOR"
+        elif kind == "modify_seller":
+            inserted, updated, write_errors = _upsert_seller_budget(valid, overwrite=True)
+            tipo = "MODIFICACION_ASESOR"
         else:
             inserted, updated, write_errors = _upsert_line_branch_budget(valid, overwrite)
             tipo = "LINEA_SUCURSAL"
         all_errors = pd.concat([errors, write_errors], ignore_index=True) if not write_errors.empty else errors
         _log_import(tipo, uploaded.name, len(raw), inserted, updated, all_errors)
-        st.success(f"Carga finalizada. Insertadas: {inserted}. Actualizadas: {updated}. Errores: {len(all_errors)}.")
+        if kind == "modify_seller":
+            st.success(f"Modificacion finalizada. Insertadas: {inserted}. Actualizadas: {updated}. Errores: {len(all_errors)}.")
+        else:
+            st.success(f"Carga finalizada. Insertadas: {inserted}. Actualizadas: {updated}. Errores: {len(all_errors)}.")
     code_footer(*code)
 
 
@@ -1036,13 +1053,17 @@ def render_import_admin() -> None:
     _budget_css()
     section_title("Administracion de presupuesto")
     st.caption("Carga presupuestos desde Excel. Esta seccion queda en Configuracion para separar ingreso de datos y consulta gerencial.")
-    tab_branch, tab_seller, tab_line_branch = st.tabs(["Importar Sucursal", "Importar Vendedor", "Importar Linea Sucursal"])
+    tab_branch, tab_seller, tab_line_branch, tab_modify_seller = st.tabs(
+        ["Importar Sucursal", "Importar Vendedor", "Importar Linea Sucursal", "Modificar Asesora"]
+    )
     with tab_branch:
         _import_tab("branch")
     with tab_seller:
         _import_tab("seller")
     with tab_line_branch:
         _import_tab("line_branch")
+    with tab_modify_seller:
+        _import_tab("modify_seller")
 
 
 def render() -> None:
